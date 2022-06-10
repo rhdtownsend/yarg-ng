@@ -1,0 +1,76 @@
+! Module  : limb_m
+! Purpose : limb-darkening and related functions
+!
+! Copyright 2010-2022 Rich Townsend
+!
+! This file is part of Yarg. Yarg is free software: you can redistribute
+! it and/or modify it under the terms of the GNU General Public
+! License as published by the Free Software Foundation, version 3.
+!
+! Yarg is distributed in the hope that it will be useful, but WITHOUT
+! ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+! or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+! License for more details.
+!
+! You should have received a copy of the GNU General Public License
+! along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+#:include 'forum.inc'
+
+module limb_m
+
+   ! Uses
+
+   use forum_m
+
+   ! No implicit typing
+
+   implicit none
+
+   ! Parameters
+
+   real(RD), parameter :: U_LIMB = 0.6_RD
+
+   ! Access specifiers
+
+   private
+
+   public :: limb_func
+
+contains
+
+   function limb_func(mu, reject)
+
+      real(RD), intent(in)          :: mu
+      logical, intent(in), optional :: reject
+      real(RD)                      :: limb_func
+
+      logical :: reject_
+
+      if (PRESENT(reject)) then
+         reject_ = reject
+      else
+         reject_ = .FALSE.
+      endif
+
+      ! Evaluate the limb-darkening function
+
+      limb_func = (1._RD - U_LIMB)*mu + U_LIMB*mu**2
+
+      ! Normalize the function
+
+      if (.NOT. reject_) then
+
+         ! Integral over 2pi steradians == 1
+
+         limb_func = limb_func/(PI*(1._RD - U_LIMB/3._RD))
+
+      end if
+
+      ! Finish
+
+      return
+
+   end function limb_func
+
+end module limb_m

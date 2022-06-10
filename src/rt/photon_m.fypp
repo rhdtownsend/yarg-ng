@@ -1,0 +1,315 @@
+! Module  : photon_m
+! Purpose : define photon_t type, representing a single photon
+!
+! Copyright 2010-2022 Rich Townsend
+!
+! This file is part of Yarg. Yarg is free software: you can redistribute
+! it and/or modify it under the terms of the GNU General Public
+! License as published by the Free Software Foundation, version 3.
+!
+! Yarg is distributed in the hope that it will be useful, but WITHOUT
+! ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+! or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+! License for more details.
+!
+! You should have received a copy of the GNU General Public License
+! along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+#:include 'forum.inc'
+
+module photon_m
+
+   ! Uses
+
+   use forum_m
+
+   use clump_m
+   use limb_m
+   use matrix_m
+   use random_m
+   use tau_m
+   use vector_m
+   use volume_m
+
+   use ISO_FORTRAN_ENV
+
+   ! No implicit typing
+
+   implicit none
+
+   ! Parameter definitions
+
+   integer, parameter :: EVENT_SCATTER = 1
+   integer, parameter :: EVENT_ABSORB = 2
+   integer, parameter :: EVENT_ESCAPE = 3
+
+   ! Derived-type definitions
+
+   type photon_t
+      real(RD) :: r(3) = 0.      ! Position vector of last scattering
+      real(RD) :: T(3) = 0.      ! Tangent vector (photon direction)
+      real(RD) :: N(3) = 0.      ! Normal vector (N = B x T)
+      real(RD) :: B(3) = 0.      ! Binormal vector (perpendicular to plane of last scattering)
+      real(RD) :: stokes(4) = 0. ! Stokes parameters
+      integer  :: event = 0      ! Event identifier
+      integer  :: n_scat = 0     ! Number of scatterings
+   end type photon_t
+
+   ! Access specifiers
+
+   private
+
+   public :: EVENT_SCATTER
+   public :: EVENT_ABSORB
+   public :: EVENT_ESCAPE
+   public :: photon_t
+   public :: create_photon
+   public :: propagate_photon
+   public :: scatter_photon
+
+contains
+
+  subroutine create_photon(photon)
+
+     type(photon_t), intent(out) :: photon
+
+     real(RD) :: r_mu
+     real(RD) :: r_theta
+     real(RD) :: r_phi
+     real(RD) :: T_mu
+     real(RD) :: T_theta
+     real(RD) :: T_phi
+     real(RD) :: norm_N
+     real(RD) :: norm_B
+
+     ! Choose a random location on the stellar surface
+
+     r_mu = -1. + 2.*random()
+
+     r_theta = ACOS(r_mu)
+     r_phi = TWOPI*random()
+
+     photon%r = [SIN(r_theta)*COS(r_phi), &
+                 SIN(r_theta)*SIN(r_phi), &
+                 COS(r_theta)]
+
+     ! Use the rejection method to calculate the emission angle
+
+     reject_loop : do
+
+        ! Choose a random mu (> 0)
+
+        T_mu = random()
+
+        if(random() < limb_func(T_mu, reject=.TRUE.)) exit reject_loop
+
+     end do reject_loop
+
+     ! Set up the photon direction
+
+     T_theta = ACOS(T_mu)
+     T_phi = TWOPI*random()
+    
+     photon%T = [COS(T_theta),            &
+                 SIN(T_theta)*COS(T_phi), &
+                 SIN(T_theta)*SIN(T_phi)]
+
+     photon%T = MATMUL(spherical_vbasis([1._RD,r_theta,r_phi], normal=.TRUE.), photon%T)
+
+     ! Initialize the other reference vectors
+
+     photon%N = cross_product([0._RD,1._RD,0._RD], photon%T)
+     photon%B = cross_product(photon%T, [1._RD,0._RD,0._RD])
+
+     norm_N = NORM2(photon%N)
+     norm_B = NORM2(photon%B)
+
+     if (norm_N > norm_B) then
+        photon%N = photon%N/norm_N
+        photon%B = cross_product(photon%T, photon%N)
+     else
+        photon%B = photon%B/norm_B
+        photon%N = cross_product(photon%B, photon%T)
+     endif
+
+     ! Set up the Stokes vector
+
+     photon%stokes = [1._RD,0._RD,0._RD,0._RD]
+
+     ! Set up other stuff 
+
+     photon%n_scat = 0
+
+     ! Finish
+
+     return
+
+  end subroutine create_photon
+
+  !****
+
+  subroutine propagate_photon(photon, clumps, volume, is_first)
+
+     type(photon_t), intent(inout) :: photon
+     type(clump_t), intent(in)     :: clumps(:)
+     type(volume_t), intent(in)    :: volume
+     logical, intent(in)           :: is_first
+
+     real(RD) :: s(2*SIZE(clumps)+2)
+     real(RD) :: tau(2*SIZE(clumps)+2)
+     integer  :: n
+     logical  :: inter_star
+     real(RD) :: tau_scat
+     integer  :: i
+     real(RD) :: w
+     real(RD) :: s_scat
+
+     ! Propagate the photon until something (an event) happens
+
+     ! Only test for star intersections after photons
+     ! have scattered at least once
+
+     inter_star = .NOT. is_first
+
+     ! Build the optical depth profile
+
+     call build_tau(photon%r, photon%T, clumps, volume, s, tau, n, inter_star)
+
+     ! Check for an 'empty' ray
+
+     @:ASSERT_DEBUG(n > 0, 'Empty optical depth array')
+
+     if (n == 1) then
+        if(inter_star) then
+           photon%event = EVENT_ABSORB
+        else
+           photon%event = EVENT_ESCAPE
+        endif
+        return
+     endif
+
+     ! Chose an optical distance to the next scattering
+
+     if (is_first) then
+
+        ! Force the first scattering
+
+        tau_scat = MIN(-LOG(1._RD - random()*(1._RD - EXP(-tau(n)))), tau(n))
+        photon%stokes = photon%stokes*(1._RD - EXP(-tau(n)))
+
+     else
+
+        tau_scat = -LOG(1._RD - random())
+
+     endif
+
+     ! Locate where the scattering occurs
+
+     locate_loop : do i = 1,n-1
+        if (tau(i+1) >= tau_scat) exit locate_loop
+     end do locate_loop
+
+     ! Move the photon to the scattering location
+
+     if (i < n) then
+
+        if(tau(i+1) > tau(i)) then
+           w = (tau_scat - tau(i))/(tau(i+1) - tau(i))
+        else
+           w = 0._RD
+        endif
+
+        s_scat = s(i) + w*(s(i+1) - s(i))
+
+        photon%r = photon%r + s_scat*photon%T
+        photon%event = EVENT_SCATTER
+
+     else
+
+        @:ASSERT_DEBUG(.NOT. is_first, 'Forced first failed to scatter')
+
+        if(inter_star) then
+           photon%event = EVENT_ABSORB
+        else
+           photon%event = EVENT_ESCAPE
+        endif
+
+     endif
+
+     ! Finish
+
+     return
+
+  end subroutine propagate_photon
+
+  !****
+
+  subroutine scatter_photon(photon)
+
+     type(photon_t), intent(inout) :: photon
+
+     real(RD) :: i_1
+     real(RD) :: Theta
+     real(RD) :: M(4,4)
+     real(RD) :: stokes(4)
+     real(RD) :: T(3)
+     real(RD) :: B(3)
+     real(RD) :: norm_B
+
+     ! Use the rejection method to calculate the scattering angles i_1,
+     ! i_2 and Theta (see Chandrasekhar, 1960)
+
+     reject_loop : do
+
+        ! Choose a random i_1 and Theta
+
+        i_1 = TWOPI*random()
+        Theta = ACOS(-1._RD + 2._RD*random())
+
+        ! Calculate the phase matrix
+
+        M = MATMUL(phase_matrix(Theta, reject=.TRUE.), rot_matrix(i_1))
+
+        ! Calculate the new Stokes vector
+
+        stokes = MATMUL(M, photon%stokes)
+
+        ! Apply the rejection method
+
+        if (random() < stokes(1)/photon%stokes(1)) exit reject_loop
+
+     end do reject_loop
+
+     ! Calculate the new photon reference vectors
+
+     T = COS(Theta)*photon%T + &
+         SIN(Theta)*(COS(i_1)*photon%N + SIN(i_1)*photon%B)
+
+     B = cross_product(photon%T, T)
+     norm_B = NORM2(B)
+
+     if (norm_B < SQRT(EPSILON(1._RD))) then
+        B = photon%B
+     else
+        B = B/norm_B
+     endif
+
+     photon%T = T
+     photon%N = cross_product(B, T)
+     photon%B = B
+
+     ! Set up the new stokes vector
+
+     photon%stokes = stokes/stokes(1)*photon%stokes(1)
+
+     ! Update the scattering counter
+
+     photon%n_scat = photon%n_scat + 1
+
+     ! Finish
+
+     return
+
+  end subroutine scatter_photon
+
+end module photon_m

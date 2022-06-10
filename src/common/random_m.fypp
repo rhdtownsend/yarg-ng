@@ -1,0 +1,121 @@
+! Module   : random_m
+! Purpose  : random number generation
+!
+! Copyright 2010-2022 Rich Townsend
+!
+! This file is part of Yarg. Yarg is free software: you can redistribute
+! it and/or modify it under the terms of the GNU General Public
+! License as published by the Free Software Foundation, version 3.
+!
+! Yarg is distributed in the hope that it will be useful, but WITHOUT
+! ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+! or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+! License for more details.
+!
+! You should have received a copy of the GNU General Public License
+! along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+#:include 'forum.inc'
+
+module random_m
+
+   ! Uses
+
+   use forum_m
+
+   ! No implicit typing
+
+   implicit none
+
+   ! Interfaces
+
+   interface set_seed
+      module procedure set_seed_0_
+      module procedure set_seed_1_
+   end interface set_seed
+
+   ! Access specifiers
+
+   private
+
+   public :: get_seed
+   public :: set_seed
+   public :: random
+
+   ! Procedures
+
+contains
+
+   subroutine get_seed(seed)
+
+      integer, allocatable, intent(out) :: seed(:)
+
+      integer :: size
+
+      ! Get the random seed
+
+      call RANDOM_SEED(SIZE=size)
+
+      allocate(seed(size))
+
+      call RANDOM_SEED(GET=seed)
+
+      ! Finish
+
+      return
+
+   end subroutine get_seed
+
+   !****
+
+   subroutine set_seed_0_(seed)
+
+      integer, intent(in) :: seed
+
+      integer :: size
+
+      ! Set the random seed
+
+      call RANDOM_SEED(SIZE=size)
+
+      call RANDOM_SEED(PUT=SPREAD(seed, DIM=1, NCOPIES=size))
+
+      ! Finish
+
+      return
+
+   end subroutine set_seed_0_
+
+   !****
+
+   subroutine set_seed_1_(seed)
+
+      integer, intent(in) :: seed(:)
+
+      ! Set the random seed
+
+      call RANDOM_SEED(PUT=seed)
+
+      ! Finish
+
+      return
+
+   end subroutine set_seed_1_
+
+   !****
+   
+   function random()
+
+      real(RD) :: random
+
+      ! Get a random number
+
+      call RANDOM_NUMBER(random)
+
+      ! Finish
+
+      return
+
+   end function random
+
+end module random_m

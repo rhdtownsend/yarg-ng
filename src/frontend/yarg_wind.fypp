@@ -1,0 +1,355 @@
+! Program : yarg_wind
+! Purpose : create a time-series of wind clump distributions and write to files
+!
+! Copyright 2021-2022 Rich Townsend
+!
+! This file is part of Yarg. Yarg is free software: you can redistribute
+! it and/or modify it under the terms of the GNU General Public
+! License as published by the Free Software Foundation, version 3.
+!
+! Yarg is distributed in the hope that it will be useful, but WITHOUT
+! ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+! or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+! License for more details.
+!
+! You should have received a copy of the GNU General Public License
+! along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+#:include 'forum.inc'
+
+program yarg_wind
+
+   ! Uses
+
+   use forum_m
+
+   use yarg_m
+
+  use ISO_FORTRAN_ENV
+
+  ! No implicit typing
+
+  implicit none
+
+  ! Variables
+
+  type(cubint_t)             :: cubint_r_t
+  type(cubint_t)             :: cubint_tau_t
+  real(RD)                   :: N
+  real(RD)                   :: l_star
+  real(RD)                   :: chi_star
+  integer                    :: n_t
+  real(RD)                   :: dt
+  character(256)             :: prefix
+  real(RD)                   :: t_max
+  real(RD)                   :: t_clump_max
+  integer                    :: n_clump
+  integer                    :: d_clump
+  real(RD)                   :: t_clump
+  real(RD), allocatable      :: t_clumps(:)
+  real(RD), allocatable      :: theta_clumps(:)
+  real(RD), allocatable      :: phi_clumps(:)
+  real(RD)                   :: t_sim
+  logical, allocatable       :: mask(:)
+  integer                    :: i_t
+  type(clump_t), allocatable :: clumps(:)
+  character(LEN=6)           :: infix
+  type(hdf5io_t)             :: hdf5io
+
+  ! Perform initializations
+
+  call init_wind(cubint_r_t, cubint_tau_t)
+  call init_clump(N, l_star, chi_star)
+  call init_random()
+  call init_run(n_t, dt, prefix)
+
+  ! Initialize time parameters
+
+  call cubint_r_t%get_x_max(t_max)
+  t_clump_max = dt*(n_t-1) ! Maximum clump emission time
+
+  ! Set up the clump emission times and angles
+
+  n_clump = 0
+  d_clump = 2*CEILING((t_max + t_clump_max)*N) ! Factor 2 being conservative
+
+  allocate(t_clumps(d_clump))
+  allocate(theta_clumps(d_clump))
+  allocate(phi_clumps(d_clump))
+
+  t_clump = t_clump_max
+
+  clump_loop : do
+
+     ! Check for completion
+
+     if(t_clump < -t_max) exit clump_loop
+
+     ! Store clump parameters
+
+     n_clump = n_clump + 1
+
+     t_clumps(n_clump) = t_clump
+     theta_clumps(n_clump) = ACOS(MIN(MAX(-1._RD + 2._RD*random(), -1._RD), 1._RD))
+     phi_clumps(n_clump) = TWOPI*random()
+
+     ! Update the clump emission time (Poisson 
+     ! process with mean separation 1/N). 
+     ! Note that t gets *smaller* in this expression
+
+     t_clump = t_clump + LOG(1._RD - random())/N
+
+  end do clump_loop
+
+  ! Shrink arrays
+
+  call reallocate(t_clumps, [n_clump])
+  call reallocate(theta_clumps, [n_clump])
+  call reallocate(phi_clumps, [n_clump])
+
+  ! Now loop through simulation time
+
+  allocate(mask(n_clump))
+
+  sim_loop : do i_t = 1,n_t
+
+     t_sim = (i_t-1)*dt
+     
+     ! Instantiate the clumps that were emitted up to t_max before the
+     ! current time
+
+     mask = t_clumps >= t_sim - t_max .AND. &
+            t_clumps <= t_sim
+
+     clumps = create_clumps(cubint_r_t, cubint_tau_t, &
+          PACK(MAX(MIN(t_sim - t_clumps, t_max), 0._RD), MASK=mask), &
+          PACK(theta_clumps, MASK=mask), &
+          PACK(phi_clumps, MASK=mask), N, l_star, chi_star)
+
+     ! Write out the clump file
+
+     write(infix, 100) i_t
+100  format(I6.6)
+
+     hdf5io = hdf5io_t(TRIM(prefix)//infix//'.h5', CREATE_FILE)
+     call write_clumps(hdf5io, clumps)
+     call hdf5io%final()
+
+     write(OUTPUT_UNIT, *) 'Written : ', i_t, SIZE(clumps)
+
+     ! Loop around
+
+  end do sim_loop
+
+  ! Finish
+
+contains
+
+   subroutine init_wind(cubint_r_t, cubint_tau_t)
+
+      type(cubint_t), intent(out) :: cubint_r_t
+      type(cubint_t), intent(out) :: cubint_tau_t
+
+      integer, parameter :: N_EOM = 1024
+
+      real(RD) :: beta
+      real(RD) :: b
+      real(RD) :: R_clump_in
+      real(RD) :: R_clump_ex
+      real(RD) :: v_in
+      real(RD) :: v_ex
+      integer  :: i
+      real(RD) :: v(N_EOM)
+      real(RD) :: r(N_EOM)
+      real(RD) :: t(N_EOM)
+      real(RD) :: tau(N_EOM)
+
+      ! Read the wind parameters
+
+      read(INPUT_UNIT, *) beta, b, R_clump_in, R_clump_ex
+
+      @:ASSERT(b < 1._RD, 'b parameter must be less than unity')
+      @:ASSERT(R_clump_in < R_clump_ex, 'R_clump in must be less than R_clump_ex')
+
+      ! Set up the equation of motion interpolants
+
+      ! First, tabulate v and r(v)
+
+      v_in = (1._RD - b/R_clump_in)**beta
+      v_ex = (1._RD - b/R_clump_ex)**beta
+
+      v = [((v_in*(N_EOM - i) + v_ex*(i - 1))/(N_EOM - 1),i=1,N_EOM)]
+
+      if (ABS(beta) > EPSILON(1._RD)) then
+         r = b/(1. - v**(1./beta))
+      else
+         r = [((R_clump_in*(N_EOM - i) + R_clump_ex*(i - 1))/(N_EOM - 1),i=1,N_EOM)]
+         print *,'Warning: wind at terminal velocity throughout'
+      endif
+
+      ! Use a cubic interpolant to integrate 1/v = dt/dr and find the
+      ! wind travel time to each velocity/radius
+
+      t = cubint_integ(r, 1._RD/v)
+
+      ! Set up the cubic interpolant for r(t)
+
+      cubint_r_t = cubint_t(t, r, 'SPLINE', df_dx_a=v_in, df_dx_b=v_ex)
+
+      ! Set up the cubinc interpolant for tau(t), the normalized
+      ! smooth-wind optical depth to the star
+
+      tau = cubint_integ(r, 1._RD/(r**2*(1._RD - b/r)**beta))
+
+      cubint_tau_t = cubint_t(t, tau, 'SPLINE')
+
+      ! Finish
+
+      return
+
+   end subroutine init_wind
+
+   !****
+
+   function cubint_integ(x, f) result(int_f)
+
+      real(RD), intent(in) :: x(:)
+      real(RD), intent(in) :: f(:)
+      real(RD)             :: int_f(SIZE(x))
+
+      type(cubint_t) :: cubint
+
+      @:CHECK_BOUNDS(SIZE(f), SIZE(x))
+
+      ! Create a cubic interpolant for f(x)
+
+      cubint = cubint_t(x, f, deriv_type='SPLINE')
+
+      ! Evaluate the integral of f(x) dx
+
+      int_f = cubint%integ(x)
+
+      ! Finish
+
+   end function cubint_integ
+
+   !****
+
+   subroutine init_clump (N, l_star, chi_star)
+
+      real(RD), intent(out) :: N
+      real(RD), intent(out) :: l_star
+      real(RD), intent(out) :: chi_star
+
+      real(RD) :: tau_star
+
+      ! Read the clump parameters
+
+      read(INPUT_UNIT, *) tau_star, N, l_star
+
+      ! Set up related parameters
+
+      chi_star = 3.*tau_star/(N*l_star**3) ! Optical thickness per unit length, at star
+
+      ! Finish
+
+      return
+
+   end subroutine init_clump
+
+   !****
+
+   subroutine init_random ()
+
+      integer              :: seed_base
+      integer              :: n_seed      
+      integer, allocatable :: seed(:)
+
+      ! Read the RNG parameters
+
+      read(INPUT_UNIT, *) seed_base
+
+      ! Seed the RNG
+
+      call RANDOM_SEED(SIZE=n_seed)
+
+      allocate(seed(n_seed))
+
+      seed = seed_base
+
+      call RANDOM_SEED(PUT=seed)
+
+      ! Finish
+
+      return
+
+   end subroutine init_random
+
+   !****
+
+   subroutine init_run (n_t, dt, prefix)
+
+      integer, intent(out)      :: n_t
+      real(RD), intent(out)     :: dt
+      character(*), intent(out) :: prefix
+
+      ! Read the run parameters
+
+      read(INPUT_UNIT, *) n_t, dt
+      read(INPUT_UNIT, *) prefix
+
+      ! Finish
+
+      return
+
+   end subroutine init_run
+
+   !****
+
+   function create_clumps (cubint_r_t, cubint_tau_t, t_clumps, theta, phi, N, l_star, chi_star) result(clumps)
+
+      type(cubint_t), intent(in) :: cubint_r_t
+      type(cubint_t), intent(in) :: cubint_tau_t
+      real(RD), intent(in)       :: t_clumps(:)
+      real(RD), intent(in)       :: theta(:)
+      real(RD), intent(in)       :: phi(:)
+      real(RD), intent(in)       :: N
+      real(RD), intent(in)       :: l_star
+      real(RD), intent(in)       :: chi_star
+      type(clump_t), allocatable :: clumps(:)
+
+      real(RD) :: r(SIZE(t_clumps))
+
+      ! Calculate radial coordinates
+
+      r = cubint_r_t%func(t_clumps)
+
+      ! Set up the clumps
+
+      allocate(clumps(SIZE(t_clumps)))
+
+      ! Position coordinates
+
+      clumps%r(1) = r*SIN(theta)*COS(phi)
+      clumps%r(2) = r*SIN(theta)*SIN(phi)
+      clumps%r(3) = r*COS(theta)
+
+      ! Clump radius
+
+      clumps%l = l_star*r
+
+      ! Clump chi=kappa*rho
+
+      clumps%chi = chi_star/r**3
+
+      ! Optical depth to star?
+
+      clumps%tau_st = chi_star*N*l_star**3*cubint_tau_t%func(t_clumps)/3._RD
+
+      ! Finish
+
+      return
+
+   end function create_clumps
+
+end program yarg_wind

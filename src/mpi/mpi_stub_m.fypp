@@ -1,0 +1,125 @@
+! Module  : mpi_full_m
+! Purpose : generic wrappers for MPI routines (stub implementation)
+!
+! Copyright 2010-2022 Rich Townsend
+!
+! This file is part of Yarg. Yarg is free software: you can redistribute
+! it and/or modify it under the terms of the GNU General Public
+! License as published by the Free Software Foundation, version 3.
+!
+! Yarg is distributed in the hope that it will be useful, but WITHOUT
+! ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+! or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+! License for more details.
+!
+! You should have received a copy of the GNU General Public License
+! along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+#:include 'forum.inc'
+
+module mpi_stub_m
+
+   ! Uses
+
+   use forum_m
+
+   ! No implicit typing
+
+   implicit none
+
+   ! Variables
+
+   integer, protected, save :: mpi_rank
+   integer, protected, save :: mpi_size
+
+   ! Interfaces
+
+   #:for op in ('bcast', 'reduce_sum')
+      interface ${op}$
+         #:for rank in range(RANK_MAX+1)
+            #:for type, suffix in zip(MATH_TYPES, MATH_SUFFIXES)
+               module procedure ${'{:s}_{:s}_{:d}_'.format(op, suffix, rank)}$
+            #:endfor
+         #:endfor
+      end interface ${op}$
+   #:endfor
+
+   ! Access specifiers
+
+   private
+
+   public :: mpi_rank
+   public :: mpi_size
+   public :: init_mpi
+   public :: final_mpi
+   public :: bcast
+   public :: reduce_sum
+
+   ! Procedures
+
+contains
+
+   subroutine init_mpi()
+
+      integer :: ierr
+
+      ! Initialize MPI
+
+      mpi_rank = 0
+      mpi_size = 1
+
+      ! Finish
+
+      return
+
+   end subroutine init_mpi
+
+   !****
+
+   subroutine final_mpi()
+
+      ! Finish
+
+      return
+
+   end subroutine final_mpi
+
+   !****
+
+   #:for rank in range(RANK_MAX+1)
+      #:for type, suffix in zip(MATH_TYPES, MATH_SUFFIXES)
+   
+         subroutine bcast_${suffix}$_${rank}$_(data, root)
+
+            ${type}$, intent(inout) :: data${ARRAY_SPEC(rank)}$
+            #:if rank > 0
+               contiguous :: data
+            #:endif
+            integer, intent(in)  :: root
+
+            ! Finish
+
+            return
+
+         end subroutine bcast_${suffix}$_${rank}$_
+        
+         !****
+
+         subroutine reduce_sum_${suffix}$_${rank}$_(data, root)
+
+            ${type}$, intent(inout) :: data${ARRAY_SPEC(rank)}$
+            #:if rank > 0
+               contiguous :: data
+            #:endif
+            integer, intent(in)     :: root
+
+            ! Finish
+
+            return
+
+         end subroutine reduce_sum_${suffix}$_${rank}$_
+         
+      #:endfor
+   #:endfor   
+
+end module mpi_stub_m

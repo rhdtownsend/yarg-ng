@@ -1,0 +1,98 @@
+! Module   : matrix_m
+! Purpose  : routines for evaluating various matrices
+!
+! Copyright 2010-2022 Rich Townsend
+!
+! This file is part of Yarg. Yarg is free software: you can redistribute
+! it and/or modify it under the terms of the GNU General Public
+! License as published by the Free Software Foundation, version 3.
+!
+! Yarg is distributed in the hope that it will be useful, but WITHOUT
+! ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+! or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+! License for more details.
+!
+! You should have received a copy of the GNU General Public License
+! along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+#:include 'forum.inc'
+
+module matrix_m
+
+   ! Uses
+
+   use forum_m
+
+   ! No implicit typing
+
+   implicit none
+
+   ! Access specifiers
+
+   private
+
+   public :: phase_matrix
+   public :: rot_matrix
+
+   ! Procedures
+
+contains
+
+   function phase_matrix(Theta, reject)
+
+      real(RD), intent(in)          :: Theta
+      logical, intent(in), optional :: reject
+      real(RD)                      :: phase_matrix(4,4)
+
+      logical :: reject_
+
+      ! Evaluate the Mueller matrix for Rayleigh scattering
+
+      phase_matrix(1,:) = 3._RD*[COS(Theta)**2+1._RD,COS(Theta)**2-1._RD,0._RD,0._RD]/4._RD
+      phase_matrix(2,:) = 3._RD*[COS(Theta)**2-1._RD,COS(Theta)**2+1._RD,0._RD,0._RD]/4._RD
+      phase_matrix(3,:) = 3._RD*[0._RD,0._RD,2._RD*COS(Theta),0._RD]/4._RD
+      phase_matrix(4,:) = 3._RD*[0._RD,0._RD,0._RD,2._RD*COS(Theta)]/4._RD
+
+      ! Normalize the matrix
+
+      if (reject_) then
+
+         ! Maximum value == 1
+
+         phase_matrix = 2._RD*phase_matrix/3._RD
+
+      else
+
+         ! Integral over 4pi steradians == 1
+
+         phase_matrix = phase_matrix/(4._RD*PI)
+
+      endif
+
+      ! Finish
+
+      return
+
+   end function phase_matrix
+
+   !****
+
+   function rot_matrix(i)
+
+      real(RD), intent(in) :: i
+      real(RD)             :: rot_matrix(4,4)
+
+      ! Evaluate the Mueller matrix for a rotation
+
+      rot_matrix(1,:) = [1._RD,0._RD,0._RD,0._RD]
+      rot_matrix(2,:) = [0._RD,COS(2._RD*i),SIN(2._RD*i),0._RD]
+      rot_matrix(3,:) = [0._RD,-SIN(2._RD*i),COS(2._RD*i),0._RD]
+      rot_matrix(4,:) = [0._RD,0._RD,0._RD,1._RD]
+
+      ! Finish
+
+      return
+
+   end function rot_matrix
+
+end module matrix_m

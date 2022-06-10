@@ -1,0 +1,262 @@
+! Module  : tau_m
+! Purpose : routines for optical depth integrations
+!
+! Copyright 2010-2022 Rich Townsend
+!
+! This file is part of Yarg. Yarg is free software: you can redistribute
+! it and/or modify it under the terms of the GNU General Public
+! License as published by the Free Software Foundation, version 3.
+!
+! Yarg is distributed in the hope that it will be useful, but WITHOUT
+! ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+! or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+! License for more details.
+!
+! You should have received a copy of the GNU General Public License
+! along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+#:include 'forum.inc'
+
+module tau_m
+
+   ! Uses
+
+   use forum_m
+
+   use clump_m
+   use volume_m
+
+   use ISO_FORTRAN_ENV
+   
+   ! No implicit typing
+
+   implicit none
+
+   ! Parameter definitions
+
+   integer, parameter :: STAR_OPACITY = 1
+   integer, parameter :: CLUMP_OPACITY = 2
+
+   ! Access specifiers
+   
+   private
+
+   public :: STAR_OPACITY
+   public :: CLUMP_OPACITY
+   public :: tau_bound
+   public :: build_tau
+
+contains
+
+   function tau_bound(r, T, clumps, volume, opacity)
+
+      real(RD), intent(in)       :: r(:)
+      real(RD), intent(in)       :: T(:)
+      type(clump_t), intent(in)  :: clumps(:)
+      type(volume_t), intent(in) :: volume
+      integer, intent(in)        :: opacity
+      real(RD)                   :: tau_bound
+
+      logical  :: inter_star
+      real(RD) :: s(2*SIZE(clumps)+2)
+      real(RD) :: tau(2*SIZE(clumps)+2)
+      integer  :: n
+
+      ! Build the optical depth profile
+
+      inter_star = IAND(opacity, STAR_OPACITY) /= 0
+
+      call build_tau(r, T, clumps, volume, s, tau, n, inter_star)
+
+      ! Extract the boundary optical depth
+
+      if (inter_star) then
+
+         tau_bound = HUGE(0._RD)
+
+      else
+
+         if (IAND(opacity, CLUMP_OPACITY) /= 0) then
+            tau_bound = tau(n)
+         else
+            tau_bound = 0._RD
+         endif
+
+      endif
+
+      ! Finish
+
+      return
+
+   end function tau_bound
+
+   !****
+
+   subroutine build_tau (r, T, clumps, volume, s, tau, n, inter_star)
+
+      real(RD), intent(in)       :: r(:)
+      real(RD), intent(in)       :: T(:)
+      type(clump_t), intent(in)  :: clumps(:)
+      type(volume_t), intent(in) :: volume
+      real(RD), intent(out)      :: s(:)
+      real(RD), intent(out)      :: tau(:)
+      integer, intent(out)       :: n
+      logical, intent(inout)     :: inter_star
+
+      real(RD) :: s_mid
+      real(RD) :: dsds
+      real(RD) :: s_star
+      logical  :: mask(SIZE(clumps))
+      integer  :: i
+      real(RD) :: dr(3)
+      real(RD) :: ds
+      real(RD) :: s_ex
+      real(RD) :: s_in
+      real(RD) :: dchi(SIZE(s))
+      integer  :: ind(SIZE(s))
+      real(RD) :: chi
+
+      ! Build the piecewise-linear optical depth profile tau(s)
+
+      ! If necessary, find if/where the ray intersects the star
+      ! (Note that only inward-going intsersections are
+      ! counted)
+
+      if (inter_star) then
+
+         s_mid = DOT_PRODUCT(T, -r)
+
+         dsds = 1._RD + s_mid**2 - DOT_PRODUCT(r, r)
+
+         if (dsds > 0._RD) then
+
+            ds = SQRT(dsds)
+
+            s_ex = s_mid + ds
+
+            if (s_ex > 0._RD) then
+               s_star = MAX(s_mid - ds, 0._RD)
+               inter_star = .TRUE.
+            else
+               s_star = HUGE(0._RD)
+               inter_star = .FALSE.
+            endif
+
+         else
+
+            s_star = HUGE(0._RD)
+            inter_star = .FALSE.
+
+         endif
+
+      else
+
+         s_star = HUGE(0.)
+
+      endif
+
+      ! Set up a mask of those clumps the photon *might* intersect
+
+      call build_mask(r, T, volume, mask)
+
+      ! Set up the initial chi
+
+      s(1) = 0.
+      dchi(1) = 0.
+
+      n = 1
+
+      ! Now loop through the clumps, testing each in turn for
+      ! intersection
+
+      clump_loop : do i = 1, SIZE(clumps)
+
+         if (.NOT. mask(i)) cycle clump_loop
+
+         ! Intersection test
+
+         dr = clumps(i)%r - r
+
+         s_mid = DOT_PRODUCT(T, dr)
+
+         dsds = clumps(i)%l2 + s_mid**2 - DOT_PRODUCT(dr,dr)
+         ! dsds = clumps(i)%l2 + DOT_PRODUCT(T-dr,dr)
+
+         if (dsds > 0._RD) then
+
+            ! If the test passes, store the chi jumps
+            ! occurring when the ray enters and/or exits the
+            ! clump
+
+            ds = SQRT(dsds)
+
+            ! s_mid = DOT_PRODUCT(T, dr)
+
+            s_ex = s_mid + ds
+
+            if (s_ex > 0._RD) then
+
+               if(s_ex < s_star) then
+                  n =  n + 1
+                  s(n) = s_ex
+                  dchi(n) = -clumps(i)%chi
+               endif
+
+               s_in = s_mid - ds
+
+               if(s_in > 0._RD) then
+
+                  if(s_in < s_star) then
+                     n = n + 1
+                     s(n) = s_in
+                     dchi(n) = clumps(i)%chi
+                  end if
+
+               else
+
+                  dchi(1) = dchi(1) + clumps(i)%chi
+
+               end if
+
+            endif
+
+         end if
+
+      end do clump_loop
+
+      ! Sort the chi jump data
+
+      ind(:n) = sort_indices(s(:n))
+
+      s(:n) = s(ind(:n))
+      dchi(:n) = dchi(ind(:n))
+
+      ! Integrate the chi jumps to obtain the optical depth profile,
+      ! taking special care to handle coincident points
+
+      @:ASSERT_DEBUG(s(1) == 0._RD, 'Problem with sort')
+
+      tau(1) = 0._RD
+
+      chi = dchi(1)
+
+      tau_loop : do i = 2, n
+         tau(i) = tau(i-1) + chi*(s(i) - s(i-1))
+         chi = chi + dchi(i)
+      end do tau_loop
+
+      ! If required, add in a final segment to the stellar surface
+
+      if (inter_star) then
+         n = n+1
+         s(n) = s_star
+         tau(n) = tau(n-1) + chi*(s(n) - s(n-1))
+      endif
+
+      ! Finish
+
+      return
+
+   end subroutine build_tau
+
+end module tau_m

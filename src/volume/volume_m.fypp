@@ -1,0 +1,422 @@
+! Module  : volume_m
+! Purpose : definition of volume_t type, which provides volume hashing
+!           of clumps
+!
+! Copyright 2010-2022 Rich Townsend
+!
+! This file is part of Yarg. Yarg is free software: you can redistribute
+! it and/or modify it under the terms of the GNU General Public
+! License as published by the Free Software Foundation, version 3.
+!
+! Yarg is distributed in the hope that it will be useful, but WITHOUT
+! ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+! or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+! License for more details.
+!
+! You should have received a copy of the GNU General Public License
+! along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+#:include 'forum.inc'
+
+module volume_m
+
+   ! Uses
+
+   use forum_m
+
+   use clump_m
+   use voxel_m
+
+   use ISO_FORTRAN_ENV
+   
+   ! No implicit typing
+
+   implicit none
+
+   ! Derived-type definitions
+
+   type volume_t
+      type(voxel_t), allocatable :: voxels(:,:,:) ! Voxels
+      real(RD)                   :: x_min = 0._RD
+      real(RD)                   :: y_min = 0._RD
+      real(RD)                   :: z_min = 0._RD
+      real(RD)                   :: dx = 0._RD
+      real(RD)                   :: dy = 0._RD
+      real(RD)                   :: dz = 0._RD
+      integer                    :: n_x = 0
+      integer                    :: n_y = 0
+      integer                    :: n_z = 0
+   end type volume_t
+
+   ! Access specifiers
+   
+   private
+
+   public :: volume_t
+   public :: build_volume
+   public :: build_mask
+   public :: find_volume_intersect
+
+contains
+
+   subroutine build_volume (clumps, n_x, n_y, n_z, volume)
+
+      type(clump_t), intent(in)           :: clumps(:)
+      integer, intent(in)                 :: n_x
+      integer, intent(in)                 :: n_y
+      integer, intent(in)                 :: n_z
+      type(volume_t), intent(out), target :: volume
+
+      integer, parameter :: D_0 = 8
+      real(RD), parameter    :: S_EPS = SQRT(EPSILON(1._RD))
+
+      real(RD) :: x_min
+      real(RD) :: x_max
+      real(RD) :: y_min
+      real(RD) :: y_max
+      real(RD) :: z_min
+      real(RD) :: z_max
+      integer  :: i
+      integer  :: i_x_lo
+      integer  :: i_x_hi
+      integer  :: i_y_lo
+      integer  :: i_y_hi
+      integer  :: i_z_lo
+      integer  :: i_z_hi
+      integer  :: i_x
+      integer  :: i_y
+      integer  :: i_z
+
+      ! Allocate the voxel array
+
+      volume%n_x = n_x
+      volume%n_y = n_y
+      volume%n_z = n_z
+
+      allocate(volume%voxels(volume%n_x,volume%n_y,volume%n_z))
+
+      ! Set up the bounds
+
+      x_min = MINVAL([clumps%r(1) - clumps%l,-1._RD])
+      x_max = MAXVAL([clumps%r(1) + clumps%l,1._RD])
+
+      y_min = MINVAL([clumps%r(2) - clumps%l,-1._RD])
+      y_max = MAXVAL([clumps%r(2) + clumps%l,1._RD])
+
+      z_min = MINVAL([clumps%r(3) - clumps%l,-1._RD])
+      z_max = MAXVAL([clumps%r(3) + clumps%l,1._RD])
+
+      volume%x_min = x_min - (x_max - x_min)*S_EPS
+      volume%dx = (x_max - x_min)*(1._RD + 2._RD*S_EPS)/volume%n_x
+
+      volume%y_min = y_min - (y_max - y_min)*S_EPS
+      volume%dy = (y_max - y_min)*(1._RD + 2._RD*S_EPS)/volume%n_y
+
+      volume%z_min = z_min - (z_max - z_min)*S_EPS
+      volume%dz = (z_max - z_min)*(1._RD + 2._RD*S_EPS)/volume%n_z
+
+      ! Store in each voxel the indices of the clumps
+      ! that overlap that voxel
+
+      clump_loop : do i = 1,SIZE(clumps)
+
+         ! Calculate the integer voxel coordinates of the 
+         ! clump's bounding box
+
+         call locate(volume%x_min, volume%dx, clumps(i)%r(1)-clumps(i)%l, i_x_lo)
+         call locate(volume%x_min, volume%dx, clumps(i)%r(1)+clumps(i)%l, i_x_hi)
+
+         call locate(volume%y_min, volume%dy, clumps(i)%r(2)-clumps(i)%l, i_y_lo)
+         call locate(volume%y_min, volume%dy, clumps(i)%r(2)+clumps(i)%l, i_y_hi)
+
+         call locate(volume%z_min, volume%dz, clumps(i)%r(3)-clumps(i)%l, i_z_lo)
+         call locate(volume%z_min, volume%dz, clumps(i)%r(3)+clumps(i)%l, i_z_hi)
+
+         i_x_lo = MAX(MIN(i_x_lo, volume%n_x), 1)
+         i_x_hi = MAX(MIN(i_x_hi, volume%n_x), 1)
+
+         i_y_lo = MAX(MIN(i_y_lo, volume%n_y), 1)
+         i_y_hi = MAX(MIN(i_y_hi, volume%n_y), 1)
+
+         i_z_lo = MAX(MIN(i_z_lo, volume%n_z), 1)
+         i_z_hi = MAX(MIN(i_z_hi, volume%n_z), 1)
+
+         @:ASSERT(volume%x_min + (i_x_lo-1)*volume%dx <= clumps(i)%r(1)-clumps(i)%l, 'Failed index setup')
+         @:ASSERT(volume%y_min + (i_y_lo-1)*volume%dy <= clumps(i)%r(2)-clumps(i)%l, 'Failed index setup')
+         @:ASSERT(volume%z_min + (i_z_lo-1)*volume%dz <= clumps(i)%r(3)-clumps(i)%l, 'Failed index setup')
+
+         @:ASSERT_DEBUG(volume%x_min + i_x_hi*volume%dx >= clumps(i)%r(1)+clumps(i)%l, 'Failed index setup')
+         @:ASSERT_DEBUG(volume%y_min + i_y_hi*volume%dy >= clumps(i)%r(2)+clumps(i)%l, 'Failed index setup')
+         @:ASSERT_DEBUG(volume%z_min + i_z_hi*volume%dz >= clumps(i)%r(3)+clumps(i)%l, 'Failed index setup')
+
+         ! Add the clump's index to each voxel in the
+         ! bounding box
+
+         voxel_z_loop : do i_z = i_z_lo, i_z_hi
+            voxel_y_loop : do i_y = i_y_lo, i_y_hi
+               voxel_x_loop : do i_x = i_x_lo, i_x_hi
+
+                  associate(voxel => volume%voxels(i_x,i_y,i_z))
+
+                    if (voxel%d == 0) then
+                       voxel%d = D_0
+                       allocate(voxel%i(voxel%d))
+                    endif
+
+                    voxel%n = voxel%n + 1
+
+                    if (voxel%n > voxel%d) then
+                       voxel%d = 2*voxel%d
+                       call reallocate(voxel%i, [voxel%d])
+                    endif
+
+                    voxel%i(voxel%n) = i
+
+                  end associate
+
+               end do voxel_x_loop
+            end do voxel_y_loop
+         end do voxel_z_loop
+
+      end do clump_loop
+
+      ! Finish
+
+      return
+
+   end subroutine build_volume
+
+   !****
+
+   subroutine build_mask(r, T, volume, mask)
+
+      real(RD), intent(in)       :: r(:)
+      real(RD), intent(in)       :: T(:)
+      type(volume_t), intent(in) :: volume
+      logical, intent(out)       :: mask(:)
+
+      real(RD) :: s_in
+      real(RD) :: s_ex
+      real(RD) :: r_in(3)
+      integer  :: i_x
+      integer  :: i_y
+      integer  :: i_z
+      integer  :: di_x
+      integer  :: di_y
+      integer  :: di_z
+      real(RD) :: l_x
+      real(RD) :: l_y
+      real(RD) :: l_z
+      real(RD) :: dl_x
+      real(RD) :: dl_y
+      real(RD) :: dl_z
+
+      ! Build a mask for which indices in volume%voxels%i *might* be
+      ! intersected by the ray
+
+      ! Use a 3-D DDA algorithm (Amanatides & Woo, 'A Fast Voxel
+      ! Traversal Algorithm for Ray Tracing') to traverse the volume
+
+      #:if defined('DEBUG')
+
+      call locate(volume%x_min, volume%dx, r(1), i_x)
+      call locate(volume%y_min, volume%dy, r(2), i_y)
+      call locate(volume%z_min, volume%dz, r(3), i_z)
+
+      @:ASSERT(i_x >= 1, 'Ray origin outside bounding volume')
+      @:ASSERT(i_y >= 1, 'Ray origin outside bounding volume')
+      @:ASSERT(i_z >= 1, 'Ray origin outside bounding volume')
+
+      @:ASSERT(i_x <= volume%n_x, 'Ray origin outside bounding volume')
+      @:ASSERT(i_y <= volume%n_y, 'Ray origin outside bounding volume')
+      @:ASSERT(i_z <= volume%n_z, 'Ray origin outside bounding volume')
+
+      #:endif
+
+      ! Find the ray coordinates for where the ray enters and exits
+      ! the volume
+
+      call find_volume_intersect(r, T, volume, s_in, s_ex)
+
+      ! Find the voxel coordinates where the ray enters the volume
+
+      r_in = r + s_in*T
+
+      call locate(volume%x_min, volume%dx, r_in(1), i_x)
+      call locate(volume%y_min, volume%dy, r_in(2), i_y)
+      call locate(volume%z_min, volume%dz, r_in(3), i_z)
+
+      ! (Gracefully handle rounding issues)
+
+      i_x = MAX(MIN(i_x, volume%n_x), 1)
+      i_y = MAX(MIN(i_y, volume%n_y), 1)
+      i_z = MAX(MIN(i_z, volume%n_z), 1)
+
+      r_in(1) = MAX(MIN(r_in(1), volume%x_min + volume%n_x*volume%dx), volume%x_min)
+      r_in(2) = MAX(MIN(r_in(2), volume%y_min + volume%n_y*volume%dy), volume%y_min)
+      r_in(3) = MAX(MIN(r_in(3), volume%z_min + volume%n_z*volume%dz), volume%z_min)
+      
+      ! Set up the other DDA stuff
+
+      if (ABS(T(1)) < EPSILON(0._RD)) then
+         di_x = 1
+         l_x = HUGE(0._RD)
+         dl_x = HUGE(0._RD)
+      elseif (T(1) > 0._RD) then
+         di_x = 1
+         l_x = (volume%x_min + i_x*volume%dx - r_in(1))/T(1)
+         dl_x = volume%dx/T(1)
+      else
+         di_x = -1
+         l_x = (volume%x_min + (i_x-1)*volume%dx - r_in(1))/T(1)
+         dl_x = -volume%dx/T(1)
+      endif
+
+      if (ABS(T(2)) < EPSILON(0._RD)) then
+         di_y = 1
+         l_y = HUGE(0._RD)
+         dl_y = HUGE(0._RD)
+      elseif(T(2) > 0._RD) then
+         di_y = 1
+         l_y = (volume%y_min + i_y*volume%dy - r_in(2))/T(2)
+         dl_y = volume%dy/T(2)
+      else
+         di_y = -1
+         l_y = (volume%y_min + (i_y-1)*volume%dy - r_in(2))/T(2)
+         dl_y = -volume%dy/T(2)
+      endif
+      
+      if (ABS(T(3)) < EPSILON(0._RD)) then
+         di_z = 1
+         l_z = HUGE(0._RD)
+         dl_z = HUGE(0._RD)
+      elseif(T(3) > 0._RD) then
+         di_z = 1
+         l_z = (volume%z_min + i_z*volume%dz - r_in(3))/T(3)
+         dl_z = volume%dz/T(3)
+      else
+         di_z = -1
+         l_z = (volume%z_min + (i_z-1)*volume%dz - r_in(3))/T(3)
+         dl_z = -volume%dz/T(3)
+      endif
+
+      ! Traverse the volume, setting up mask
+      
+      mask = .FALSE.
+
+      dda_loop : do
+
+         @:ASSERT_DEBUG(i_x >= 1, 'Out-of-bounds index')
+         @:ASSERT_DEBUG(i_y >= 1, 'Out-of-bounds index')
+         @:ASSERT_DEBUG(i_z >= 1, 'Out-of-bounds index')
+       
+         @:ASSERT_DEBUG(i_x <= volume%n_x, 'Out-of-bounds index')
+         @:ASSERT_DEBUG(i_y <= volume%n_y, 'Out-of-bounds index')
+         @:ASSERT_DEBUG(i_z <= volume%n_z, 'Out-of-bounds index')
+       
+         ! Update mask
+
+         associate(voxel => volume%voxels(i_x,i_y,i_z))
+
+           if(voxel%d > 0) mask(voxel%i(:voxel%n)) = .TRUE.
+
+           ! Advance the position
+
+           if(l_x < l_y) then
+
+              if(l_x < l_z) then
+
+                 i_x = i_x + di_x
+                 if(i_x < 1 .OR. i_x > volume%n_x) exit dda_loop
+                 l_x = l_x + dl_x
+                
+              else
+
+                 i_z = i_z + di_z
+                 if(i_z < 1 .OR. i_z > volume%n_z) exit dda_loop
+                 l_z = l_z + dl_z
+             
+              endif
+
+           else
+
+              if(l_y < l_z) then
+
+                 i_y = i_y + di_y
+                 if(i_y < 1 .OR. i_y > volume%n_y) exit dda_loop
+                 l_y = l_y + dl_y
+
+              else
+
+                 i_z = i_z + di_z
+                 if(i_z < 1 .OR. i_z > volume%n_x) exit dda_loop
+                 l_z = l_z + dl_z
+             
+              endif
+
+           endif
+
+         end associate
+
+      end do dda_loop
+
+      ! Finish
+    
+      return
+
+   end subroutine build_mask
+
+   !****
+
+   subroutine find_volume_intersect(r, T, volume, s_in, s_ex)
+
+      real(RD), dimension(:), intent(in) :: r
+      real(RD), dimension(:), intent(in) :: T
+      type(volume_t), intent(in)         :: volume
+      real(RD), intent(out)              :: s_in
+      real(RD), intent(out)              :: s_ex
+
+      real(RD), dimension(6) :: s_plane
+      logical, dimension(6)  :: mask
+
+      ! Work out where the ray intersects each bounding plane of the
+      ! volume
+
+      if (ABS(T(1)) > EPSILON(0._RD)) then
+         s_plane(1) = (volume%x_min - r(1))/T(1)
+         s_plane(2) = s_plane(1) + volume%n_x*volume%dx/T(1)
+      else
+         s_plane(1) = -HUGE(0._RD)
+         s_plane(2) = -HUGE(0._RD)
+      endif
+
+      if (ABS(T(2)) > EPSILON(0._RD)) then
+         s_plane(3) = (volume%y_min - r(2))/T(2)
+         s_plane(4) = s_plane(3) + volume%n_y*volume%dy/T(2)
+      else
+         s_plane(3) = -HUGE(0._RD)
+         s_plane(4) = -HUGE(0._RD)
+      endif
+
+      if (ABS(T(3)) > EPSILON(0._RD)) then
+         s_plane(5) = (volume%z_min - r(3))/T(3)
+         s_plane(6) = s_plane(5) + volume%n_z*volume%dz/T(3)
+      else
+         s_plane(5) = -HUGE(0._RD)
+         s_plane(6) = -HUGE(0._RD)
+      endif
+
+      ! Find the ray coordinates of the volume exit and entrance
+
+      mask = s_plane >= 0._RD
+
+      s_ex = MINVAL(s_plane, MASK=mask)
+      s_in = MAXVAL(s_plane, MASK=.NOT. mask)
+
+      ! Finish
+
+      return
+
+   end subroutine find_volume_intersect
+
+end module volume_m

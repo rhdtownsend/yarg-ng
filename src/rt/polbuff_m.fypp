@@ -1,0 +1,306 @@
+! Module  : polbuff_m
+! Purpose : define polbuff_t type, representing a polarization framebuffer
+!
+! Copyright 2010-2022 Rich Townsend
+!
+! This file is part of Yarg. Yarg is free software: you can redistribute
+! it and/or modify it under the terms of the GNU General Public
+! License as published by the Free Software Foundation, version 3.
+!
+! Yarg is distributed in the hope that it will be useful, but WITHOUT
+! ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+! or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+! License for more details.
+!
+! You should have received a copy of the GNU General Public License
+! along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+#:include 'forum.inc'
+
+module polbuff_m
+
+   ! Uses
+
+   use forum_m
+
+   use clump_m
+   use limb_m
+   use matrix_m
+   use photon_m
+   use tau_m
+   use vector_m
+   use volume_m
+
+   ! No implicit typing
+
+   implicit none
+
+   ! Derived-type definitions
+
+   type polbuff_t
+      real(RD), allocatable  :: stokes_direct(:,:,:)      ! Stokes vectors for direct radiation
+      real(RD), allocatable  :: stokes_indirect(:,:,:)    ! Stokes vectors for indirect (scattered) radiation
+      real(RD)               :: trans_matrix(3,3) = 0._RD ! Transformation matrix
+      real(RD), pointer      :: T(:)
+      real(RD), pointer      :: B(:)
+      real(RD), pointer      :: N(:)
+      real(RD)               :: stokes_acc(4) = 0._RD  ! Stokes-vector accumulator for single photon cycle
+      real(RD)               :: stokes_sum(4) = 0._RD  ! Sum of Stokes vectors for all photons
+      real(RD)               :: stokes_sum2(4) = 0._RD ! Sum of Stokes vectors squared for all photons
+      real(RD)               :: x_min = 0._RD
+      real(RD)               :: y_min = 0._RD
+      real(RD)               :: dx = 0._RD
+      real(RD)               :: dy = 0._RD
+      integer                :: n_x = 0
+      integer                :: n_y = 0
+      integer(ID)            :: n_create = 0
+      integer(ID)            :: n_absorb = 0
+      integer(ID)            :: n_peel = 0
+   end type polbuff_t
+
+   ! Access specifiers
+
+   private
+
+   public :: polbuff_t
+   public :: peel_direct
+   public :: peel_indirect
+   public :: accumulate_photon
+   public :: noise
+   public :: signal_to_noise
+
+contains
+
+   subroutine peel_direct (photon, clumps, volume, peel_opacity, polbuff)
+
+      type(photon_t), intent(in)      :: photon
+      type(clump_t), intent(in)       :: clumps(:)
+      type(volume_t), intent(in)      :: volume
+      integer, intent(in)             :: peel_opacity
+      type(polbuff_t), intent(inout)  :: polbuff
+
+      real(RD), dimension(3) :: T
+      real(RD)               :: mu
+      real(RD)               :: tau
+
+      ! Set up the normal direction
+
+      T = photon%r/NORM2(photon%r)
+
+      ! Work out the emission angle
+
+      mu = DOT_PRODUCT(polbuff%T, T)
+
+      if (mu > 0._RD) then
+
+         ! Calculate the boundary optical distance
+
+         tau = tau_bound(photon%r, polbuff%T, clumps, volume, IAND(peel_opacity, CLUMP_OPACITY))
+
+         ! Accumulate the peeled-off photon
+
+         call accumulate_photon(photon, polbuff, photon%stokes*EXP(-tau)*limb_func(mu), .TRUE.)
+
+      endif
+    
+      ! Finish
+
+      polbuff%n_peel = polbuff%n_peel + 1
+
+      return
+
+   end subroutine peel_direct
+
+   !****
+
+   subroutine peel_indirect (photon, clumps, volume, peel_opacity, polbuff)
+
+      type(photon_t), intent(in)     :: photon
+      type(clump_t), intent(in)      :: clumps(:)
+      type(volume_t), intent(in)     :: volume
+      integer                        :: peel_opacity
+      type(polbuff_t), intent(inout) :: polbuff
+
+      real(RD) :: B(3)
+      real(RD) :: norm_B
+      real(RD) :: N(3)
+      real(RD) :: BN1
+      real(RD) :: BB1
+      real(RD) :: TT
+      real(RD) :: BN2
+      real(RD) :: BB2
+      real(RD) :: i_1
+      real(RD) :: i_2
+      real(RD) :: Theta
+      real(RD) :: M(4,4)
+      real(RD) :: tau
+
+      ! Evaluate the angles for scattering into the polbuff
+
+      B = cross_product(photon%T, polbuff%T)
+      norm_B = NORM2(B)
+
+      if (norm_B < SQRT(EPSILON(1._RD))) then
+         B = photon%B
+      else
+         B = B/norm_B
+      endif
+
+      N = cross_product(B, polbuff%T)
+
+      BN1 = MIN(MAX(DOT_PRODUCT(B, photon%N), -1._RD), 1._RD)
+      BB1 = MIN(MAX(DOT_PRODUCT(B, photon%B), -1._RD), 1._RD)
+
+      TT = MIN(MAX(DOT_PRODUCT(polbuff%T, photon%T), -1._RD), 1._RD)
+
+      BN2 = MIN(MAX(DOT_PRODUCT(polbuff%B, N), -1._RD), 1._RD)
+      BB2 = MIN(MAX(DOT_PRODUCT(polbuff%B, B), -1._RD), 1._RD)
+
+      i_1 = ATAN2(-BN1, BB1)
+      Theta = ACOS(TT)
+      i_2 = ATAN2(-BN2, BB2)
+
+      ! Calculate the phase matrix
+
+      M = MATMUL(rot_matrix(i_2), MATMUL(phase_matrix(Theta), rot_matrix(i_1)))
+
+      ! Calculate the boundary optical distance
+
+      tau = tau_bound(photon%r, polbuff%T, clumps, volume, peel_opacity)
+
+      ! Accumulate the peeled-off photon
+
+      call accumulate_photon(photon, polbuff, EXP(-tau)*MATMUL(M, photon%stokes), .FALSE.)
+
+      ! Finish
+
+      polbuff%n_peel = polbuff%n_peel + 1
+
+      return
+
+   end subroutine peel_indirect
+   
+   !****
+
+   subroutine accumulate_photon (photon, polbuff, stokes, direct)
+
+      type(photon_t), intent(in)     :: photon
+      type(polbuff_t), intent(inout) :: polbuff
+      real(RD), intent(in)           :: stokes(:)
+      logical, intent(in)            :: direct
+
+      real(RD) :: r(3)
+      integer  :: i_x
+      integer  :: i_y
+
+      ! Transform to te polbuff coordinate frame
+
+      r = MATMUL(polbuff%trans_matrix, photon%r)
+
+      ! Accumulate the photon in the appropriate pixel
+
+      call locate(polbuff%x_min, polbuff%dx, r(1), i_x)
+      call locate(polbuff%y_min, polbuff%dy, r(2), i_y)
+
+      if (i_x >= 1 .AND. i_x <= polbuff%n_x .AND. &
+          i_y >= 1 .AND. i_y <= polbuff%n_y) then
+
+         if (direct) then
+            polbuff%stokes_direct(:,i_x,i_y) = polbuff%stokes_direct(:,i_x,i_y) + stokes
+         else
+            polbuff%stokes_indirect(:,i_x,i_y) = polbuff%stokes_indirect(:,i_x,i_y) + stokes
+         endif
+
+         ! Update the Stokes vector accumulator
+
+         polbuff%stokes_acc = polbuff%stokes_acc + stokes
+
+      endif
+
+      ! Finish
+
+      return
+
+   end subroutine accumulate_photon
+
+   !****
+
+   function noise(polbuff)
+
+      type(polbuff_t), intent(in) :: polbuff
+      real(RD)                    :: noise
+
+      real(RD) :: var_stokes(4)
+      real(RD) :: err_stokes(4)
+      real(RD) :: pol2
+
+      ! Calculate the noise in the polarization fraction
+
+      if (polbuff%n_create > 1) then
+
+         ! Calculate the variance of the total Stokes vector
+
+         var_stokes = (polbuff%stokes_sum2*polbuff%n_create - polbuff%stokes_sum**2)/(polbuff%n_create-1)
+
+         ! This avoids very small negative variances that
+         ! arise from cancellation at the machine-precision
+         ! level
+
+         var_stokes = MAX(var_stokes, 0._RD)
+
+         ! Calculate the error on the total Stokes vector
+
+         err_stokes = SQRT(var_stokes)
+
+         ! Calculate the noise
+
+         pol2 = DOT_PRODUCT(polbuff%stokes_sum(2:), polbuff%stokes_sum(2:))
+
+         if (pol2 > 0._RD) then
+            noise = (DOT_PRODUCT(ABS(polbuff%stokes_sum(2:)), err_stokes(2:))/SQRT(pol2) + &
+                 err_stokes(1)/polbuff%stokes_sum(1))/polbuff%stokes_sum(1)
+         else
+            noise = HUGE(0._RD)
+         endif
+
+      else
+
+         noise = HUGE(0._RD)
+
+      endif
+
+      ! Finish
+
+      return
+
+   end function noise
+
+   !****
+
+   function signal_to_noise(polbuff) result (SN)
+
+      type(polbuff_t), intent(in) :: polbuff
+      real(RD)                    :: SN
+
+      real(RD) :: S
+      real(RD) :: N
+
+      ! Calculate the polarization fraction
+
+      S = SQRT(DOT_PRODUCT(polbuff%stokes_sum(2:), polbuff%stokes_sum(2:)))/polbuff%stokes_sum(1)
+
+      ! Calculate the polarization fraction noise
+
+      N = noise(polbuff)
+
+      ! Calculate the S/N
+
+      SN = S/N
+
+      ! Finish
+
+      return
+
+   end function signal_to_noise
+
+end module polbuff_m

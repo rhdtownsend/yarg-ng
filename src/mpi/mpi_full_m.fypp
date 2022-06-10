@@ -1,0 +1,163 @@
+! Module  : mpi_full_m
+! Purpose : generic wrappers for MPI routines (full implementation)
+!
+! Copyright 2010-2022 Rich Townsend
+!
+! This file is part of Yarg. Yarg is free software: you can redistribute
+! it and/or modify it under the terms of the GNU General Public
+! License as published by the Free Software Foundation, version 3.
+!
+! Yarg is distributed in the hope that it will be useful, but WITHOUT
+! ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+! or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+! License for more details.
+!
+! You should have received a copy of the GNU General Public License
+! along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+#:include 'forum.inc'
+#:include 'mpi.inc'
+
+module mpi_full_m
+
+   ! Uses
+
+   use forum_m
+
+   use MPI
+
+   ! No implicit typing
+
+   implicit none
+
+   ! Variables
+
+   integer, protected, save :: mpi_rank
+   integer, protected, save :: mpi_size
+
+   ! Interfaces
+
+   #:for op in ('bcast', 'reduce_sum')
+      interface ${op}$
+         #:for rank in range(RANK_MAX+1)
+            #:for type, suffix in zip(ALL_TYPES, ALL_SUFFIXES)
+               module procedure '{:s}_{:s}_{:d}_'.format(op, suffix, rank)
+            #:endfor
+         #:endfor
+      end interface ${op}$
+   #:endfor
+
+   ! Access specifiers
+
+   private
+
+   public :: mpi_rank
+   public :: mpi_size
+   public :: init_mpi
+   public :: final_mpi
+   public :: bcast
+   public :: reduce_sum
+
+   ! Procedures
+
+contains
+
+   subroutine init_mpi()
+
+      integer :: ierr
+
+      ! Initialize MPI
+
+      call MPI_INIT(ierr)
+      @:ASSERT(ierror == MPI_SUCCESS, 'MPI_INIT failed')
+      
+      call MPI_COMM_RANK(MPI_COMM_WORLD, mpi_rank, ierr)
+      @:ASSERT(ierror == MPI_SUCCESS, 'MPI_COMM_RANK failed')
+
+      call MPI_COMM_SIZE(MPI_COMM_WORLD, mpi_size, ierr)
+      @:ASSERT(ierror == MPI_SUCCESS, 'MPI_COMM_SIZE failed')
+
+      ! Finish
+
+      return
+
+   end subroutine init_mpi
+
+   !****
+
+   subroutine final_mpi()
+
+      integer :: ierr
+
+      ! Finalize MPI
+
+      call MPI_FINALIZE(ierr)
+
+      ! Finish
+
+      return
+
+   end subroutine final_mpi
+   
+   !****
+
+   #:for rank in range(RANK_MAX+1)
+      #:for type, suffix in zip(MATH_TYPES, MATH_SUFFIXES)
+   
+         subroutine bcast_${suffix}$_${rank}$_(data, root)
+
+            ${type}$, intent(inout) :: data${ARRAY_SPEC(rank)}$
+            #:if rank > 0
+               contiguous :: data
+            #:endif
+            integer, intent(in)  :: root
+
+            integer :: ierr
+            
+            ! Broadcast the data
+
+            call MPI_BCAST(data, PRODUCT(SHAPE(data)), ${MPI_TYPE(suffix)}$, root, MPI_COMM_WORLD, ierr)
+            @:ASSERT(ierr == MPI_SUCCESS, 'MPI_BCAST failed')
+            
+            ! Finish
+
+            return
+
+         end subroutine bcast_${suffix}$_${rank}$_(data, dset)
+        
+         !****
+
+         subroutine reduce_sum_${suffix}$_${rank}$_(data, root)
+
+            ${type}$, intent(inout) :: data${ARRAY_SPEC(rank)}$
+            #:if rank > 0
+               contiguous :: data
+            #:endif
+            integer, intent(in)     :: root
+
+            integer :: ierr
+            
+            ! Reduce the data (sum)
+
+            if (mpi_rank == root) then
+
+               call MPI_REDUCE(MPI_IN_PLACE, data, PRODUCT(SHAPE(data)), ${MPI_TYPE{suffix)}$, MPI_SUM, root, MPI_COMM_WORLD, ierr)
+               @:ASSERT(ierr == MPI_SUCCESS, 'MPI_REDUCE failed')
+
+            else
+
+               call MPI_REDUCE(data, 0, PRODUCT(SHAPE(data)), ${MPI_TYPE(suffix)}$, MPI_SUM, root, MPI_COMM_WORLD, ierr)
+               @:ASSERT(ierr == MPI_SUCCESS, 'MPI_REDUCT failed')
+
+            end if
+               
+            ! Finish
+
+            return
+
+         end subroutine reduce_sum_${suffix}$_${rank}$_
+         
+      #:endfor
+   #:endfor   
+
+end module mpi_full_m

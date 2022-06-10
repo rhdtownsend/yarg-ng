@@ -1,0 +1,167 @@
+! Module  : vector_m
+! Purpose : support routines for vector math
+!
+! Copyright 2010-2022 Rich Townsend
+!
+! This file is part of Yarg. Yarg is free software: you can redistribute
+! it and/or modify it under the terms of the GNU General Public
+! License as published by the Free Software Foundation, version 3.
+!
+! Yarg is distributed in the hope that it will be useful, but WITHOUT
+! ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+! or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+! License for more details.
+!
+! You should have received a copy of the GNU General Public License
+! along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+#:include 'forum.inc'
+
+module vector_m
+
+   ! Uses
+
+   use forum_m
+
+   use ISO_FORTRAN_ENV
+
+   ! No implicit typing
+
+   implicit none
+
+   ! Access specifiers
+
+   private
+
+   public :: cross_product
+   public :: rotation_matrix
+   public :: spherical_vbasis
+
+   ! Procedures
+
+contains
+
+   function cross_product(va, vb)
+
+      real(RD), dimension(:), intent(in) :: va
+      real(RD), dimension(:), intent(in) :: vb
+      real(RD), dimension(3)             :: cross_product
+
+      @:CHECK_BOUNDS(SIZE(va), 3)
+      @:CHECK_BOUNDS(SIZE(vb), 3)
+
+      ! Calculate the cross product between the pair of vectors
+
+      cross_product(1) = va(2)*vb(3) - va(3)*vb(2)
+      cross_product(2) = va(3)*vb(1) - va(1)*vb(3)
+      cross_product(3) = va(1)*vb(2) - va(2)*vb(1)
+
+      ! Finish
+
+      return
+
+   end function cross_product
+
+   !****
+
+   function rotation_matrix(alpha, beta, gamma) result(R)
+
+      real(RD), intent(in) :: alpha
+      real(RD), intent(in) :: beta
+      real(RD), intent(in) :: gamma
+      real(RD)             :: R(3,3)
+    
+      real(RD) :: cos_alpha
+      real(RD) :: sin_alpha
+      real(RD) :: cos_beta
+      real(RD) :: sin_beta
+      real(RD) :: cos_gamma
+      real(RD) :: sin_gamma
+
+      ! Calculate the transformation matrix for a rotation about the
+      ! origin, by the specified Euler angles:
+      !
+      !  alpha : first rotation, about z-axis
+      !  beta  : second rotation, about y'-axis
+      !  gamma : third rotation, about z'-axis
+      !
+      ! This follows the convention by Korn & Korn (1968,
+      ! 'Mathematical Handbook for Scientists and Engineers')
+
+      cos_alpha = COS(alpha)
+      sin_alpha = SIN(alpha)
+
+      cos_beta = COS(beta)
+      sin_beta = SIN(beta)
+
+      cos_gamma = COS(gamma)
+      sin_gamma = SIN(gamma)
+
+      R(1,1) = cos_alpha*cos_beta*cos_gamma - sin_alpha*sin_gamma
+      R(2,1) = sin_alpha*cos_beta*cos_gamma + cos_alpha*sin_gamma
+      R(3,1) = -sin_beta*cos_gamma
+
+      R(1,2) = -cos_alpha*cos_beta*sin_gamma - sin_alpha*cos_gamma
+      R(2,2) = -sin_alpha*cos_beta*sin_gamma + cos_alpha*cos_gamma
+      R(3,2) = sin_beta*sin_gamma
+
+      R(1,3) = cos_alpha*sin_beta
+      R(2,3) = sin_alpha*sin_beta
+      R(3,3) = cos_beta
+
+      ! Finish
+
+      return
+
+   end function rotation_matrix
+
+   !****
+
+   function spherical_vbasis(coords, normal) result (vbasis)
+
+      real(RD), intent(in)          :: coords(:)
+      logical, intent(in), optional :: normal
+      real(RD)                      :: vbasis(3,3)
+
+      logical  :: normal_
+      real(RD) :: cos_theta
+      real(RD) :: sin_theta
+      real(RD) :: cos_phi
+      real(RD) :: sin_phi
+
+      @:CHECK_BOUNDS(SIZE(coords), 3)
+
+      if(PRESENT(normal)) then
+         normal_ = normal
+      else
+         normal_ = .FALSE.
+      endif
+
+      ! Calculate the cartesian components of the spherical basis
+      ! vectors
+
+      cos_theta = COS(coords(2))
+      sin_theta = SIN(coords(2))
+
+      cos_phi = COS(coords(3))
+      sin_phi = SIN(coords(3))
+
+      vbasis(:,1) =           [sin_theta*cos_phi,sin_theta*sin_phi,cos_theta]
+      vbasis(:,2) = coords(1)*[cos_theta*cos_phi,cos_theta*sin_phi,-sin_theta]
+      vbasis(:,3) = coords(1)*[-sin_phi,cos_phi,0._RD]
+
+      ! If necessary, normalize the basis
+
+      if (normal_) then
+         vbasis(:,1) = vbasis(:,1)/NORM2(vbasis(:,1))
+         vbasis(:,2) = vbasis(:,2)/NORM2(vbasis(:,2))
+         vbasis(:,3) = vbasis(:,3)/NORM2(vbasis(:,3))
+      endif
+
+      ! Finish
+
+      return
+
+   end function spherical_vbasis
+
+end module vector_m

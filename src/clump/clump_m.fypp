@@ -1,0 +1,205 @@
+! Module  : clump_m
+! Purpose : define clump_t type, representing a single clump
+!
+! Copyright 2010-2022 Rich Townsend
+!
+! This file is part of Yarg. Yarg is free software: you can redistribute
+! it and/or modify it under the terms of the GNU General Public
+! License as published by the Free Software Foundation, version 3.
+!
+! Yarg is distributed in the hope that it will be useful, but WITHOUT
+! ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+! or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+! License for more details.
+!
+! You should have received a copy of the GNU General Public License
+! along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+#:include 'forum.inc'
+
+module clump_m
+
+   ! Uses
+
+   use forum_m
+
+   use mpi_m
+
+   ! No implicit typing
+
+   implicit none
+
+   ! Derived-type definitions
+
+   type clump_t
+      real(RD) :: r(3) = 0.   ! Position vector
+      real(RD) :: l = 0.      ! Radius
+      real(RD) :: l2 = 0.     ! Radius squared
+      real(RD) :: chi = 0.    ! Optical depth per unit length
+      real(RD) :: tau_st = 0. ! Smooth-wind optical distance from star
+   end type clump_t
+
+   ! Access specifiers
+
+   private
+
+   public :: clump_t
+   public :: read_clumps
+   public :: write_clumps
+   public :: subset_clumps
+   public :: bcast_clumps
+   public :: bcast_clump
+
+contains
+
+   subroutine read_clumps(hdf5io, clumps)
+
+      type(hdf5io_t), intent(inout)           :: hdf5io
+      type(clump_t), allocatable, intent(out) :: clumps(:)
+
+      integer :: n
+
+      ! Read the attributes
+
+      call hdf5io%read_attr('n', n)
+
+      ! Read the data
+
+      allocate(clumps(n))
+
+      call hdf5io%read_dset('x', clumps%r(1))
+      call hdf5io%read_dset('y', clumps%r(2))
+      call hdf5io%read_dset('z', clumps%r(3))
+
+      call hdf5io%read_dset('l', clumps%l)
+
+      clumps%l2 = clumps%l**2
+
+      call hdf5io%read_dset('chi', clumps%chi)
+      call hdf5io%read_dset('tau_st', clumps%tau_st)
+
+      ! Finish
+
+      return
+
+   end subroutine read_clumps
+   
+   !****
+
+   subroutine write_clumps(hdf5io, clumps)
+
+      type(hdf5io_t), intent(inout) :: hdf5io
+      type(clump_t), intent(in)     :: clumps(:)
+
+      ! Write the attributes
+
+      call hdf5io%write_attr('n', SIZE(clumps))
+
+      ! Write the data
+
+      call hdf5io%write_dset('x', clumps%r(1))
+      call hdf5io%write_dset('y', clumps%r(2))
+      call hdf5io%write_dset('z', clumps%r(3))
+
+      call hdf5io%write_dset('l', clumps%l)
+
+      call hdf5io%write_dset('chi', clumps%chi)
+
+      call hdf5io%write_dset('tau_st', clumps%tau_st)
+
+      ! Finish
+
+      return
+
+   end subroutine write_clumps
+
+   !****
+
+   subroutine subset_clumps (clumps, i_subset)
+
+      type(clump_t), allocatable, intent(inout) :: clumps(:)
+      integer, intent(in)                       :: i_subset
+
+      real :: r(3)
+      real :: l
+      real :: l2
+      real :: chi
+      real :: tau_st
+
+      ! Replace clumps by a single-element subset
+
+      r = clumps(i_subset)%r
+      l = clumps(i_subset)%l
+      l2 = clumps(i_subset)%l2
+      chi = clumps(i_subset)%chi
+      tau_st = clumps(i_subset)%tau_st
+
+      deallocate(clumps)
+      allocate(clumps(1))
+        
+      clumps(1)%r = r
+      clumps(1)%l = l
+      clumps(1)%l2 = l2
+      clumps(1)%chi = chi
+      clumps(1)%tau_st = tau_st
+
+      ! Finish
+
+      return
+
+   end subroutine subset_clumps
+
+   !***
+
+   subroutine bcast_clumps(clumps)
+      
+      type(clump_t), allocatable, intent(inout) :: clumps(:)
+
+      integer :: rank
+      integer :: n
+      integer :: i
+
+      ! Broadcast the clumps data
+
+      if (mpi_rank == 0) then
+         n = SIZE(clumps)
+      endif
+
+      call bcast(n, 0)
+
+      if (mpi_rank /= 0) then
+         if (ALLOCATED(clumps)) deallocate(clumps)
+         allocate(clumps(n))
+      endif
+
+      clump_loop : do i = 1,n
+         call bcast_clump(clumps(i))
+      enddo clump_loop
+
+      ! Finish
+
+      return
+
+   end subroutine bcast_clumps
+
+   !****
+
+   subroutine bcast_clump (clump)
+
+      type(clump_t), intent(inout) :: clump
+
+      ! Broadcast the clump data
+
+      call bcast(clump%r, 0)
+      call bcast(clump%l, 0)
+      call bcast(clump%l2, 0)
+      call bcast(clump%chi, 0)
+      call bcast(clump%tau_st, 0)
+
+      ! Finish
+
+      return
+
+   end subroutine bcast_clump
+
+end module clump_m

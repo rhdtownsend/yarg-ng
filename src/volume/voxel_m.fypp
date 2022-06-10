@@ -1,0 +1,45 @@
+! Module  : voxel_m
+! Purpose : definition of voxel_t, which stores indices of clumps overlapping
+!           that volume element
+!
+! Copyright 2010-2022 Rich Townsend
+!
+! This file is part of Yarg. Yarg is free software: you can redistribute
+! it and/or modify it under the terms of the GNU General Public
+! License as published by the Free Software Foundation, version 3.
+!
+! Yarg is distributed in the hope that it will be useful, but WITHOUT
+! ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+! or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+! License for more details.
+!
+! You should have received a copy of the GNU General Public License
+! along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+#:include 'forum.inc'
+
+module voxel_m
+
+   ! Uses
+
+   use forum_m
+
+   ! No implicit typing
+
+   implicit none
+
+   ! Derived-type definitions
+
+   type voxel_t
+      integer              :: n = 0 ! Number of clumps overlapping voxel
+      integer              :: d = 0 ! Dimension of i
+      integer, allocatable :: i(:)  ! Indices of clumps overlapping voxel
+   end type voxel_t
+
+   ! Access specifiers
+   
+   private
+
+   public :: voxel_t
+
+end module voxel_m

@@ -1,0 +1,45 @@
+! Module  : yarg_m
+! Purpose : library package for Yarg modules
+!
+! Copyright 2022 Rich Townsend
+!
+! This file is part of Yarg. Yarg is free software: you can redistribute
+! it and/or modify it under the terms of the GNU General Public
+! License as published by the Free Software Foundation, version 3.
+!
+! Yarg is distributed in the hope that it will be useful, but WITHOUT
+! ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+! or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+! License for more details.
+!
+! You should have received a copy of the GNU General Public License
+! along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+#:include 'forum.inc'
+
+module yarg_m
+
+   ! Uses
+
+   use clump_m
+   use cubint_m
+   use limb_m
+   use matrix_m
+   use mpi_m
+   use photon_m
+   use polbuff_m
+   use random_m
+   use tau_m
+   use vector_m
+   use volume_m
+   use voxel_m
+   
+   ! No implicit typing
+
+   implicit none
+
+   ! Access specifiers
+
+   public
+
+end module yarg_m
