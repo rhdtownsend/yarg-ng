@@ -15,7 +15,7 @@ FPE ?= yes
 # Targets
 
 LIB_TARGETS = libforum libyarg
-EXEC_TARGETS = yarg_wind yarg_rt
+EXEC_TARGETS = yarg_wind yarg_adhoc yarg_rt
 
 # Object lists & related variables
 #
@@ -42,6 +42,10 @@ endif
 yarg_wind_OBJS = yarg_wind.o
 yarg_wind_LIBS = libforum libyarg
 yarg_wind_DEPS = forum_m yarg_m
+
+yarg_adhoc_OBJS = yarg_adhoc.o
+yarg_adhoc_LIBS = libforum libyarg
+yarg_adhoc_DEPS = forum_m yarg_m
 
 yarg_rt_OBJS = yarg_rt.o
 yarg_rt_LIBS = libforum libyarg

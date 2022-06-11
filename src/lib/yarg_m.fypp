@@ -38,6 +38,10 @@ module yarg_m
 
    implicit none
 
+   ! Parameter definitions
+
+   integer, parameter :: NAME_LEN = 256
+
    ! Access specifiers
 
    public

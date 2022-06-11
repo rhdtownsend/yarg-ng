@@ -31,7 +31,6 @@ program yarg_rt
    ! Parameters
 
    integer, parameter :: N_P_VOL = 7
-   integer, parameter :: NAME_LEN = 256
 
    integer, parameter :: CREATE_TERM_TYPE = 1
    integer, parameter :: PEEL_TERM_TYPE = 2
@@ -478,7 +477,7 @@ contains
 
          ! Check for absorption
 
-         if(photon%event == EVENT_ABSORB) polbuff%n_absorb = polbuff%n_absorb + 1
+         if (photon%event == EVENT_ABSORB) polbuff%n_absorb = polbuff%n_absorb + 1
 
          ! Update the Stokes vector sums
 

@@ -59,13 +59,13 @@ module volume_m
 
 contains
 
-   subroutine build_volume (clumps, n_x, n_y, n_z, volume)
+   subroutine build_volume(clumps, n_x, n_y, n_z, volume)
 
-      type(clump_t), intent(in)           :: clumps(:)
-      integer, intent(in)                 :: n_x
-      integer, intent(in)                 :: n_y
-      integer, intent(in)                 :: n_z
-      type(volume_t), intent(out), target :: volume
+      type(clump_t), intent(in)   :: clumps(:)
+      integer, intent(in)         :: n_x
+      integer, intent(in)         :: n_y
+      integer, intent(in)         :: n_z
+      type(volume_t), intent(out) :: volume
 
       integer, parameter :: D_0 = 8
       real(RD), parameter    :: S_EPS = SQRT(EPSILON(1._RD))
@@ -210,6 +210,9 @@ contains
       real(RD) :: dl_x
       real(RD) :: dl_y
       real(RD) :: dl_z
+
+      @:CHECK_BOUNDS(SIZE(r), 3)
+      @:CHECK_BOUNDS(SIZE(T), 3)
 
       ! Build a mask for which indices in volume%voxels%i *might* be
       ! intersected by the ray
@@ -378,6 +381,9 @@ contains
 
       real(RD), dimension(6) :: s_plane
       logical, dimension(6)  :: mask
+
+      @:CHECK_BOUNDS(SIZE(r), 3)
+      @:CHECK_BOUNDS(SIZE(T), 3)
 
       ! Work out where the ray intersects each bounding plane of the
       ! volume

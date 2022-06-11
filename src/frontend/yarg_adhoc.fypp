@@ -1,0 +1,112 @@
+! Program : yarg_adhoc
+! Purpose : create an ad-hoc clump distribution
+!
+! Copyright 2021-2022 Rich Townsend
+!
+! This file is part of Yarg. Yarg is free software: you can redistribute
+! it and/or modify it under the terms of the GNU General Public
+! License as published by the Free Software Foundation, version 3.
+!
+! Yarg is distributed in the hope that it will be useful, but WITHOUT
+! ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+! or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public
+! License for more details.
+!
+! You should have received a copy of the GNU General Public License
+! along with this program.  If not, see <http://www.gnu.org/licenses/>.
+
+#:include 'forum.inc'
+
+program yarg_adhoc
+
+   ! Uses
+
+   use forum_m
+
+   use yarg_m
+
+   use ISO_FORTRAN_ENV
+
+   ! No implicit typing
+
+   implicit none
+
+   ! Variables
+
+   type(clump_t), allocatable :: clumps(:)
+   character(LEN=NAME_LEN)    :: filename
+   type(hdf5io_t)             :: hdf5io
+
+   ! Perform initializations
+
+   call init_clump(clumps)
+   call init_run(filename)
+
+   ! Write out the results
+
+   hdf5io = hdf5io_t(filename, CREATE_FILE)
+   call write_clumps(hdf5io, clumps)
+   call hdf5io%final()
+
+   write(OUTPUT_UNIT, *) 'Clumps:', SIZE(clumps)
+
+   ! Finish
+
+contains
+
+   subroutine init_clump(clumps)
+
+      type(clump_t), allocatable, intent(out) :: clumps(:)
+
+      integer  :: n_clump
+      integer  :: i
+      real(RD) :: r
+      real(RD) :: theta
+      real(RD) :: phi
+
+      ! Read the number of clumps
+
+      read(INPUT_UNIT, *) n_clump
+
+      ! Set up the clumps
+
+      allocate(clumps(n_clump))
+
+      clump_loop : do i = 1,n_clump
+
+         read(INPUT_UNIT, *) r, theta, phi
+
+         theta = theta*DEG_TO_RAD
+         phi = phi*DEG_TO_RAD
+
+         clumps(i)%r(1) = r*SIN(theta)*COS(phi)
+         clumps(i)%r(2) = r*SIN(theta)*SIN(phi)
+         clumps(i)%r(3) = r*COS(theta)
+
+         read(INPUT_UNIT, *) clumps(i)%l, clumps(i)%chi
+
+      end do clump_loop
+
+      ! Finish
+
+      return
+
+   end subroutine init_clump
+
+   !****
+
+   subroutine init_run(filename)
+
+      character(*), intent(out) :: filename
+
+      ! Read the run parameters
+      
+      read(INPUT_UNIT, *) filename
+
+      ! Finish
+
+      return
+
+   end subroutine init_run
+
+end program yarg_adhoc

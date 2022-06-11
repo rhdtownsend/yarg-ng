@@ -151,7 +151,7 @@ contains
 
       else
 
-         s_star = HUGE(0.)
+         s_star = HUGE(0._RD)
 
       endif
 

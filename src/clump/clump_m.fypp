@@ -32,11 +32,11 @@ module clump_m
    ! Derived-type definitions
 
    type clump_t
-      real(RD) :: r(3) = 0.   ! Position vector
-      real(RD) :: l = 0.      ! Radius
-      real(RD) :: l2 = 0.     ! Radius squared
-      real(RD) :: chi = 0.    ! Optical depth per unit length
-      real(RD) :: tau_st = 0. ! Smooth-wind optical distance from star
+      real(RD) :: r(3) = 0._RD   ! Position vector
+      real(RD) :: l = 0._RD      ! Radius
+      real(RD) :: l2 = 0._RD     ! Radius squared
+      real(RD) :: chi = 0._RD    ! Optical depth per unit length
+      real(RD) :: tau_st = 0._RD ! Smooth-wind optical distance from star
    end type clump_t
 
    ! Access specifiers
@@ -120,11 +120,11 @@ contains
       type(clump_t), allocatable, intent(inout) :: clumps(:)
       integer, intent(in)                       :: i_subset
 
-      real :: r(3)
-      real :: l
-      real :: l2
-      real :: chi
-      real :: tau_st
+      real(RD) :: r(3)
+      real(RD) :: l
+      real(RD) :: l2
+      real(RD) :: chi
+      real(RD) :: tau_st
 
       ! Replace clumps by a single-element subset
 
@@ -155,7 +155,6 @@ contains
       
       type(clump_t), allocatable, intent(inout) :: clumps(:)
 
-      integer :: rank
       integer :: n
       integer :: i
 
