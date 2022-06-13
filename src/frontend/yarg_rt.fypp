@@ -39,178 +39,109 @@ program yarg_rt
 
    ! Variables
 
+   character(:), allocatable  :: input_file
+   integer                    :: unit
    type(polbuff_t)            :: polbuff
+   integer                    :: seed_base
    integer                    :: n_scat_max
    integer                    :: peel_opacity
+   type(clump_t), allocatable :: clumps(:)
    integer                    :: term_type
    integer                    :: n_term
    real(RD)                   :: noise_term
-   integer                    :: i_subset
-   real(RD)                   :: r_scale
-   real(RD)                   :: chi_scale
-   logical                    :: eof
-   integer                    :: iostat
-   character(LEN=name_len)    :: in_filename
-   character(LEN=name_len)    :: out_filename
-   type(hdf5io_t)             :: hdf5io
-   type(clump_t), allocatable :: clumps(:)
-   integer, allocatable       :: seed(:)
+   character(LEN=NAME_LEN)    :: polbuff_file
    integer                    :: p_vol
    integer(ID)                :: count_beg
    integer(ID)                :: count_end
    integer(ID)                :: count_rate
    real(RD)                   :: times(N_P_VOL)
    type(volume_t)             :: volume
+   type(hdf5io_t)             :: hdf5io
 
    ! Perform initializations
 
    call init_mpi()
 
-   call init_polbuff(polbuff)
-   call init_random()
-   call init_rt(n_scat_max, peel_opacity)
-   call init_run(term_type, n_term, noise_term, i_subset, r_scale, chi_scale)
+   @:ASSERT(n_arg() == 1, 'Syntax:yarg_rt input_file')
 
-   ! Loop through the files to process
+   call get_arg(1, input_file)
 
-   eof = .FALSE.
+   open(NEWUNIT=unit, FILE=input_file, STATUS='OLD')
 
-   file_loop : do
+   call init_polbuff(unit, polbuff)
+   call init_random(unit, seed_base)
+   call init_rt(unit, n_scat_max, peel_opacity)
+   call init_clumps(unit, clumps)
+   call init_run(unit, term_type, n_term, noise_term, polbuff_file)
 
-      if (mpi_rank == 0) then
+   close(unit)
 
-         read(INPUT_UNIT, *, IOSTAT=iostat) in_filename
+   ! Do test runs to gauge the best size for the hashing volume
 
-         select case(iostat)
-         case(0)
-         case(-1)
-            eof = .TRUE.
-         case(-2)
-         case default
-            @:ABORT('error reading in_filename')
-         end select
-
-         if(.NOT. eof) then
-
-            read(INPUT_UNIT, *) out_filename
-
-            print *,'Processing:', in_filename
-
-            ! Load the clump distribution
-
-            hdf5io = hdf5io_t(in_filename, OPEN_FILE_RO)
-            call read_clumps(hdf5io, clumps)
-            call hdf5io%final()
-
-            ! If necessary, manipulate the clump distribution
-
-            if (i_subset > 0) call subset_clumps(clumps, i_subset)
-
-            if (r_scale > 0) then
-
-               clumps%r(1) = clumps%r(1)*r_scale
-               clumps%r(2) = clumps%r(2)*r_scale
-               clumps%r(3) = clumps%r(3)*r_scale
-               
-               clumps%l = clumps%l*r_scale
-               clumps%chi = clumps%chi/r_scale**3
-
-            endif
-
-            if (chi_scale > 0) then
-               clumps%chi = clumps%chi*chi_scale
-            endif
-           
-         endif
-
-      endif
-
-      call bcast(eof, 0)
-      if (eof) exit file_loop
-
-      call bcast_clumps(clumps)
-
-      ! Do test runs to gauge the best size for the
-      ! hashing volume
-
-      if (mpi_rank == 0) then
-
-         ! Save the random seed
-
-         call get_seed(seed)
-
-         do p_vol = 1,N_P_VOL
-
-            call build_volume(clumps, 2**p_vol, 2**p_vol, 2**p_vol, volume)
-
-            call SYSTEM_CLOCK(COUNT=count_beg, COUNT_RATE=count_rate)
-
-            call run_rt(clumps, volume, n_scat_max, peel_opacity, CREATE_TERM_TYPE, &
-                 100000, 0._RD, polbuff, verbose=.FALSE.)
-
-            call SYSTEM_CLOCK(COUNT=count_end)
-
-            times(p_vol) = REAL(count_end - count_beg, RD)/count_rate
-
-            print *,'Timing:',p_vol,times(p_vol)
-
-            ! Restore the random seed
-
-            call set_seed(seed)
-
-         end do
-
-         p_vol = MINLOC(times, DIM=1)
-
-      endif
-
-      call bcast(p_vol, 0)
-
-      ! Set up the hashing volume for real
+   do p_vol = 1, N_P_VOL
 
       call build_volume(clumps, 2**p_vol, 2**p_vol, 2**p_vol, volume)
 
-      ! Resynchronize; this shouldn't be necessary, but
-      ! on MVAPICH2 things tend to get out of sync
+      call set_seed(seed_base)
+        
+      call SYSTEM_CLOCK(COUNT=count_beg, COUNT_RATE=count_rate)
+      call run_rt(clumps, volume, n_scat_max, peel_opacity, CREATE_TERM_TYPE, &
+           100000, 0._RD, polbuff, verbose=.FALSE.)
+      call SYSTEM_CLOCK(COUNT=count_end)
+      
+      times(p_vol) = REAL(count_end-count_beg, RD)/count_rate
 
-      !call MPI_BARRIER(MPI_COMM_WORLD, ierr)
+      print *,'Timing:',p_vol,times(p_vol)
 
-      ! Do the run
+   end do
 
-      call run_rt(clumps, volume, n_scat_max, peel_opacity, term_type, &
-           n_term, noise_term, polbuff)
+   p_vol = MINLOC(times, DIM=1)
 
-      call reduce_sum(polbuff%stokes_direct, 0)
-      call reduce_sum(polbuff%stokes_indirect, 0)
+   ! Set up the hashing volume for real
 
-      call reduce_sum(polbuff%stokes_sum, 0)
-      call reduce_sum(polbuff%n_create, 0)
-      call reduce_sum(polbuff%n_absorb, 0)
-      call reduce_sum(polbuff%n_peel, 0)
+   call build_volume(clumps, 2**p_vol, 2**p_vol, 2**p_vol, volume)
 
-      ! Write out the results
+   ! Resynchronize; this shouldn't be necessary, but on MVAPICH2
+   ! things tend to get out of sync
 
-      if (mpi_rank == 0) then
+   !call MPI_BARRIER(MPI_COMM_WORLD, ierr)
 
-         hdf5io = hdf5io_t(out_filename, CREATE_FILE)
+   ! Do the run
 
-         call hdf5io%write_attr('n_create', polbuff%n_create)
-         call hdf5io%write_attr('n_absorb', polbuff%n_absorb)
-         call hdf5io%write_attr('n_peel', polbuff%n_peel)
+   call set_seed(seed_base)
+        
+   call run_rt(clumps, volume, n_scat_max, peel_opacity, term_type, &
+               n_term, noise_term, polbuff)
 
-         call hdf5io%write_attr('stokes_sum', polbuff%stokes_sum)
-         call hdf5io%write_attr('stokes_sum2', polbuff%stokes_sum2)
+   call reduce_sum(polbuff%stokes_direct, 0)
+   call reduce_sum(polbuff%stokes_indirect, 0)
 
-         call hdf5io%write_attr('SN', signal_to_noise(polbuff))
+   call reduce_sum(polbuff%stokes_sum, 0)
+   call reduce_sum(polbuff%n_create, 0)
+   call reduce_sum(polbuff%n_absorb, 0)
+   call reduce_sum(polbuff%n_peel, 0)
 
-         call hdf5io%write_dset('stokes_direct', polbuff%stokes_direct)
-         call hdf5io%write_dset('stokes_indirect', polbuff%stokes_indirect)
+   ! Write out the results
 
-         call hdf5io%final()
+   if (mpi_rank == 0) then
+
+      hdf5io = hdf5io_t(polbuff_file, CREATE_FILE)
+
+      call hdf5io%write_attr('n_create', polbuff%n_create)
+      call hdf5io%write_attr('n_absorb', polbuff%n_absorb)
+      call hdf5io%write_attr('n_peel', polbuff%n_peel)
+
+      call hdf5io%write_attr('stokes_sum', polbuff%stokes_sum)
+      call hdf5io%write_attr('stokes_sum2', polbuff%stokes_sum2)
+
+      call hdf5io%write_attr('SN', signal_to_noise(polbuff))
+
+      call hdf5io%write_dset('stokes_direct', polbuff%stokes_direct)
+      call hdf5io%write_dset('stokes_indirect', polbuff%stokes_indirect)
+
+      call hdf5io%final()
      
-      endif
-
-   end do file_loop
+   endif
 
    ! Finish
 
@@ -218,64 +149,89 @@ program yarg_rt
   
 contains
 
-   subroutine init_polbuff (polbuff)
+   subroutine init_polbuff (unit, polbuff_)
 
-      type(polbuff_t), intent(out), target :: polbuff
+      integer, intent(in)          :: unit
+      type(polbuff_t), intent(out) :: polbuff_
 
+      real(RD) :: x_min
       real(RD) :: x_max
+      real(RD) :: y_min
       real(RD) :: y_max
+      integer  :: n_x
+      integer  :: n_y
       real(RD) :: phi
       real(RD) :: inc
       real(RD) :: gamma
 
-      ! Read the polarization buffer parameters
+      namelist /polbuff/ x_min, x_max, y_min, y_max, n_x, n_y, phi, inc, gamma
 
-      if (mpi_rank == 0) then 
+      ! Read the polbuff parameters
 
-         read(INPUT_UNIT, *) polbuff%x_min, x_max
-         read(INPUT_UNIT, *) polbuff%y_min, y_max
+      if (mpi_rank == 0) then
 
-         read(INPUT_UNIT, *) polbuff%n_x, polbuff%n_y
+         rewind(unit)
 
-         read(INPUT_UNIT, *) phi, inc, gamma
+         x_min = -10._RD
+         x_max = 10._RD
+
+         y_min = -10._RD
+         y_max = 10._RD
+
+         n_x = 1
+         n_y = 1
+
+         phi = 0._RD
+         inc = 0._RD
+         gamma = 0._RD
+
+         read(unit, NML=polbuff)
 
          phi = phi*DEG_TO_RAD
          inc = inc*DEG_TO_RAD
          gamma = gamma*DEG_TO_RAD
 
-         polbuff%dx = (x_max - polbuff%x_min)/polbuff%n_x
-         polbuff%dy = (y_max - polbuff%y_min)/polbuff%n_y
+         ! Construct the polbuff
 
-         polbuff%trans_matrix = TRANSPOSE(rotation_matrix(phi, inc, gamma))
+         polbuff_%n_x = n_x
+         polbuff_%n_y = n_y
 
-      endif
+         polbuff_%x_min = x_min
+         polbuff_%y_min = y_min
 
-      call bcast(polbuff%x_min, 0)
-      call bcast(polbuff%y_min, 0)
+         polbuff_%dx = (x_max - x_min)/n_x
+         polbuff_%dy = (y_max - y_min)/n_y
 
-      call bcast(polbuff%dx, 0)
-      call bcast(polbuff%dy, 0)
+         polbuff_%trans_matrix = TRANSPOSE(rotation_matrix(phi, inc, gamma))
 
-      call bcast(polbuff%n_x, 0)
-      call bcast(polbuff%n_y, 0)
+      end if
 
-      call bcast(polbuff%trans_matrix, 0)
+      call bcast(polbuff_%x_min, 0)
+      call bcast(polbuff_%y_min, 0)
+
+      call bcast(polbuff_%dx, 0)
+      call bcast(polbuff_%dy, 0)
+
+      call bcast(polbuff_%n_x, 0)
+      call bcast(polbuff_%n_y, 0)
+
+      call bcast(polbuff_%trans_matrix, 0)
 
       ! Allocate the Stokes vector arrays
 
-      allocate(polbuff%stokes_direct(4,polbuff%n_x,polbuff%n_y))
-      allocate(polbuff%stokes_indirect(4,polbuff%n_x,polbuff%n_y))
+      allocate(polbuff_%stokes_direct(4,polbuff_%n_x,polbuff_%n_y))
+      allocate(polbuff_%stokes_indirect(4,polbuff_%n_x,polbuff_%n_y))
 
-      polbuff%stokes_direct = 0._RD
-      polbuff%stokes_indirect = 0._RD
+      polbuff_%stokes_direct = 0._RD
+      polbuff_%stokes_indirect = 0._RD
 
-      polbuff%stokes_sum = 0._RD
+      polbuff_%stokes_sum = 0._RD
 
       ! Set up the reference vector pointers
 
-      polbuff%T => polbuff%trans_matrix(3,:)
-      polbuff%N => polbuff%trans_matrix(1,:)
-      polbuff%B => polbuff%trans_matrix(2,:)
+      polbuff_%T = polbuff_%trans_matrix(3,:)
+      polbuff_%N = polbuff_%trans_matrix(1,:)
+      polbuff_%B = polbuff_%trans_matrix(2,:)
 
       ! Finish
 
@@ -285,21 +241,26 @@ contains
 
    !****
 
-   subroutine init_random()
+   subroutine init_random (unit, seed_base)
 
-      integer :: seed_base
+      integer, intent(in)  :: unit
+      integer, intent(out) :: seed_base
+
+      namelist /random/ seed_base
 
       ! Read the RNG parameters
 
       if (mpi_rank == 0) then
-         read(INPUT_UNIT, *) seed_base
-      endif
+
+         rewind(unit)
+
+         seed_base = 0
+
+         read(unit, NML=random)
+
+      end if
 
       call bcast(seed_base, 0)
-
-      ! Seed the random number generator
-
-      call set_seed(seed_base*mpi_size + mpi_rank)
 
       ! Finish
 
@@ -309,17 +270,38 @@ contains
 
    !****
 
-   subroutine init_rt(n_scat_max, peel_opacity)
+   subroutine init_rt (unit, n_scat_max, peel_opacity)
 
+      integer, intent(in)  :: unit
       integer, intent(out) :: n_scat_max
       integer, intent(out) :: peel_opacity
+
+      character(LEN=64) :: peel_opacity_str
+
+      namelist /rt/ n_scat_max, peel_opacity_str
 
       ! Read the RT parameters
 
       if (mpi_rank == 0) then
 
-         read(INPUT_UNIT, *) n_scat_max, peel_opacity
+         rewind(unit)
 
+         n_scat_max = HUGE(0)
+         peel_opacity_str = 'CLUMP_AND_STAR'
+
+         read(unit, NML=rt)
+
+         select case(peel_opacity_str)
+         case('CLUMP')
+            peel_opacity = CLUMP_OPACITY
+         case('STAR')
+            peel_opacity = STAR_OPACITY
+         case('CLUMP_AND_STAR')
+            peel_opacity = CLUMP_OPACITY + STAR_OPACITY
+         case default
+            @:ABORT('invalid peel_opacity_str')
+         end select
+         
       end if
 
       call bcast(n_scat_max, 0)
@@ -333,22 +315,94 @@ contains
 
    !****
 
-   subroutine init_run(term_type, n_term, noise_term, i_subset, r_scale, chi_scale)
+   subroutine init_clumps (unit, clumps)
 
-      integer, intent(out)  :: term_type
-      integer, intent(out)  :: n_term
-      real(RD), intent(out) :: noise_term
-      integer, intent(out)  :: i_subset
-      real(RD), intent(out) :: r_scale
-      real(RD), intent(out) :: chi_scale
+      integer, intent(in)                     :: unit
+      type(clump_t), allocatable, intent(out) :: clumps(:)
+
+      integer             :: i_subset
+      real(RD)            :: r_scale
+      real(RD)            :: chi_scale
+      character(NAME_LEN) :: clump_file
+      type(hdf5io_t)      :: hdf5io
+
+      namelist /clump/ i_subset, r_scale, chi_scale, clump_file
+
+      ! Read the clump parameters
+
+      if (mpi_rank == 0) then
+
+         rewind(unit)
+
+         i_subset = 0
+         r_scale = 0._RD
+         chi_scale = 0._RD
+
+         clump_file = ''
+
+         read(unit, NML=clump)
+
+         ! Read the clumps
+
+         hdf5io = hdf5io_t(clump_file, OPEN_FILE_RO)
+         call read_clumps(hdf5io, clumps)
+         call hdf5io%final()
+
+         ! Subset and scale the clumps
+
+         if (i_subset > 0) call subset_clumps(clumps, i_subset)
+
+         if (r_scale > 0._RD) then
+
+            clumps%r(1) = clumps%r(1)*r_scale
+            clumps%r(2) = clumps%r(2)*r_scale
+            clumps%r(3) = clumps%r(3)*r_scale
+       
+            clumps%l = clumps%l*r_scale
+            clumps%chi = clumps%chi/r_scale**3
+
+         endif
+
+         if(chi_scale > 0._RD) then
+            clumps%chi = clumps%chi*chi_scale
+         endif
+
+      end if
+
+      call bcast_clumps(clumps, 0)
+
+      ! Finish
+
+      return
+
+   end subroutine init_clumps
+
+   !****
+
+   subroutine init_run(unit, term_type, n_term, noise_term, polbuff_file)
+
+      integer, intent(in)       :: unit
+      integer, intent(out)      :: term_type
+      integer, intent(out)      :: n_term
+      real(RD), intent(out)     :: noise_term
+      character(*), intent(out) :: polbuff_file
 
       character(LEN=64) :: term_type_str
+
+      namelist /run/ term_type_str, n_term, noise_term, polbuff_file
 
       ! Read the run parameters
 
       if (mpi_rank == 0) then
 
-         read(INPUT_UNIT, *) term_type_str, n_term, noise_term
+         rewind(unit)
+
+         term_type_str = 'CREATE'
+
+         n_term = 1000
+         noise_term = 1E-3_RD
+
+         read(unit, NML=run)
 
          select case(term_type_str)
          case('CREATE')
@@ -363,16 +417,12 @@ contains
             @:ABORT('invalid term_type_str')
          end select
 
-         read(INPUT_UNIT, *) i_subset, r_scale, chi_scale
-
       end if
 
-      call bcast(term_type, 0)
       call bcast(n_term, 0)
       call bcast(noise_term, 0)
-      call bcast(i_subset, 0)
-      call bcast(r_scale, 0)
-      call bcast(chi_scale, 0)
+
+      call bcast(term_type, 0)
 
       ! Finish
 

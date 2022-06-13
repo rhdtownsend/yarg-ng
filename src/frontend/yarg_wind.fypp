@@ -25,183 +25,206 @@ program yarg_wind
 
    use yarg_m
 
-  use ISO_FORTRAN_ENV
+   use ISO_FORTRAN_ENV
 
-  ! No implicit typing
+   ! No implicit typing
 
-  implicit none
+   implicit none
 
-  ! Variables
+   ! Variables
+   
+   character(:), allocatable  :: input_file
+   integer                    :: unit
+   type(cubint_t)             :: r_t
+   real(RD)                   :: N_dot
+   real(RD)                   :: l_star
+   real(RD)                   :: chi_star
+   integer                    :: n_t
+   real(RD)                   :: dt
+   character(256)             :: prefix
+   real(RD)                   :: t_sim_max
+   real(RD)                   :: t_min
+   real(RD)                   :: t_max
+   real(RD)                   :: t_flow
+   integer                    :: n_em
+   integer                    :: d_em
+   real(RD), allocatable      :: t_em(:)
+   real(RD), allocatable      :: theta_em(:)
+   real(RD), allocatable      :: phi_em(:)
+   real(RD)                   :: t
+   real(RD)                   :: t_sim
+   logical, allocatable       :: mask(:)
+   integer                    :: i_t
+   type(clump_t), allocatable :: clumps(:)
+   character(LEN=6)           :: infix
+   type(hdf5io_t)             :: hdf5io
 
-  type(cubint_t)             :: cubint_r_t
-  type(cubint_t)             :: cubint_tau_t
-  real(RD)                   :: N
-  real(RD)                   :: l_star
-  real(RD)                   :: chi_star
-  integer                    :: n_t
-  real(RD)                   :: dt
-  character(256)             :: prefix
-  real(RD)                   :: t_max
-  real(RD)                   :: t_clump_max
-  integer                    :: n_clump
-  integer                    :: d_clump
-  real(RD)                   :: t_clump
-  real(RD), allocatable      :: t_clumps(:)
-  real(RD), allocatable      :: theta_clumps(:)
-  real(RD), allocatable      :: phi_clumps(:)
-  real(RD)                   :: t_sim
-  logical, allocatable       :: mask(:)
-  integer                    :: i_t
-  type(clump_t), allocatable :: clumps(:)
-  character(LEN=6)           :: infix
-  type(hdf5io_t)             :: hdf5io
+   ! Perform initializations
 
-  ! Perform initializations
+   @:ASSERT(n_arg() == 1, 'Syntax: yarg_wind input_file')
 
-  call init_wind(cubint_r_t, cubint_tau_t)
-  call init_clump(N, l_star, chi_star)
-  call init_random()
-  call init_run(n_t, dt, prefix)
+   call get_arg(1, input_file)
 
-  ! Initialize time parameters
+   open(NEWUNIT=unit, FILE=input_file, STATUS='OLD')
 
-  call cubint_r_t%get_x_max(t_max)
-  t_clump_max = dt*(n_t-1) ! Maximum clump emission time
+   call init_wind(unit, r_t)
+   call init_clump(unit, N_dot, l_star, chi_star)
+   call init_random(unit)
+   call init_run(unit, n_t, dt, prefix)
 
-  ! Set up the clump emission times and angles
+   t_sim_max = dt*(n_t-1)
 
-  n_clump = 0
-  d_clump = 2*CEILING((t_max + t_clump_max)*N) ! Factor 2 being conservative
+   ! Set up the clump emission times and angles
 
-  allocate(t_clumps(d_clump))
-  allocate(theta_clumps(d_clump))
-  allocate(phi_clumps(d_clump))
+   call r_t%get_x_min(t_min)
+   call r_t%get_x_max(t_max)
 
-  t_clump = t_clump_max
+   t_flow = t_max - t_min
 
-  clump_loop : do
+   n_em = 0
+   d_em = 2*CEILING((t_flow + t_sim_max)*N_dot) ! Factor 2 being conservative
 
-     ! Check for completion
+   allocate(t_em(d_em))
+   allocate(theta_em(d_em))
+   allocate(phi_em(d_em))
 
-     if(t_clump < -t_max) exit clump_loop
+   t = -t_flow
 
-     ! Store clump parameters
+   clump_loop : do
 
-     n_clump = n_clump + 1
+      ! Check for completion
 
-     t_clumps(n_clump) = t_clump
-     theta_clumps(n_clump) = ACOS(MIN(MAX(-1._RD + 2._RD*random(), -1._RD), 1._RD))
-     phi_clumps(n_clump) = TWOPI*random()
+      if(t > t_sim_max) exit clump_loop
 
-     ! Update the clump emission time (Poisson 
-     ! process with mean separation 1/N). 
-     ! Note that t gets *smaller* in this expression
+      ! Store clump parameters
 
-     t_clump = t_clump + LOG(1._RD - random())/N
+      n_em = n_em + 1
 
-  end do clump_loop
+      t_em(n_em) = t
+      theta_em(n_em) = ACOS(MIN(MAX(-1._RD + 2._RD*random(), -1._RD), 1._RD))
+      phi_em(n_em) = TWOPI*random()
 
-  ! Shrink arrays
+      ! Update the clump emission time (Poisson process with mean
+      ! separation 1/N_dot)
 
-  call reallocate(t_clumps, [n_clump])
-  call reallocate(theta_clumps, [n_clump])
-  call reallocate(phi_clumps, [n_clump])
+      t = t - LOG(1._RD - random())/N_dot
+
+      ! Loop around
+
+   end do clump_loop
+
+   ! Shrink arrays
+
+   call reallocate(t_em, [n_em])
+   call reallocate(theta_em, [n_em])
+   call reallocate(phi_em, [n_em])
 
   ! Now loop through simulation time
+   
+   allocate(mask(n_em))
 
-  allocate(mask(n_clump))
+   sim_loop : do i_t = 1, n_t
 
-  sim_loop : do i_t = 1,n_t
-
-     t_sim = (i_t-1)*dt
+      t_sim = (i_t-1)*dt
      
-     ! Instantiate the clumps that were emitted up to t_max before the
-     ! current time
+      ! Instantiate the clumps that were emitted up to t_flow before the
+      ! current simulation time
 
-     mask = t_clumps >= t_sim - t_max .AND. &
-            t_clumps <= t_sim
+      mask = t_em >= t_sim - t_flow .AND. &
+             t_em <= t_sim
 
-     clumps = create_clumps(cubint_r_t, cubint_tau_t, &
-          PACK(MAX(MIN(t_sim - t_clumps, t_max), 0._RD), MASK=mask), &
-          PACK(theta_clumps, MASK=mask), &
-          PACK(phi_clumps, MASK=mask), N, l_star, chi_star)
+      clumps = create_clumps(r_t, &
+                             PACK(t_sim - t_em, MASK=mask), &
+                             PACK(theta_em, MASK=mask), &
+                             PACK(phi_em, MASK=mask), N_dot, l_star, chi_star)
 
-     ! Write out the clump file
+      ! Write out the clump file
 
-     write(infix, 100) i_t
-100  format(I6.6)
+      write(infix, 100) i_t
+100   format(I6.6)
 
-     hdf5io = hdf5io_t(TRIM(prefix)//infix//'.h5', CREATE_FILE)
-     call write_clumps(hdf5io, clumps)
-     call hdf5io%final()
+      hdf5io = hdf5io_t(TRIM(prefix)//infix//'.h5', CREATE_FILE)
+      call write_clumps(hdf5io, clumps)
+      call hdf5io%final()
 
-     write(OUTPUT_UNIT, *) 'Written : ', i_t, SIZE(clumps)
+      write(OUTPUT_UNIT, *) 'Written : ', i_t, SIZE(clumps)
+     
+      ! Loop around
 
-     ! Loop around
+   end do sim_loop
 
-  end do sim_loop
-
-  ! Finish
+   ! Finish
 
 contains
 
-   subroutine init_wind(cubint_r_t, cubint_tau_t)
+   subroutine init_wind(unit, r_t)
 
-      type(cubint_t), intent(out) :: cubint_r_t
-      type(cubint_t), intent(out) :: cubint_tau_t
+      integer, intent(in)         :: unit
+      type(cubint_t), intent(out) :: r_t
 
-      integer, parameter :: N_EOM = 1024
+      real(RD)              :: beta
+      real(RD)              :: R_clump_in
+      real(RD)              :: R_clump_ex
+      integer               :: n
+      real(RD)              :: v_in
+      real(RD)              :: v_ex
+      integer               :: i
+      real(RD), allocatable :: v(:)
+      real(RD), allocatable :: r(:)
+      real(RD), allocatable :: dv_dr(:)
+      type(cubint_t)        :: f
+      real(RD), allocatable :: t(:)
 
-      real(RD) :: beta
-      real(RD) :: b
-      real(RD) :: R_clump_in
-      real(RD) :: R_clump_ex
-      real(RD) :: v_in
-      real(RD) :: v_ex
-      integer  :: i
-      real(RD) :: v(N_EOM)
-      real(RD) :: r(N_EOM)
-      real(RD) :: t(N_EOM)
-      real(RD) :: tau(N_EOM)
+      namelist /wind/ beta, R_clump_in, R_clump_ex, n
 
       ! Read the wind parameters
 
-      read(INPUT_UNIT, *) beta, b, R_clump_in, R_clump_ex
+      rewind(unit)
 
-      @:ASSERT(b < 1._RD, 'b parameter must be less than unity')
+      beta = 1._RD ! Velocity-law exponent
+
+      R_clump_in = 1.1_RD  ! Inner radius of clumps
+      R_clump_ex = 10._RD  ! Outer radius of clumps
+
+      n = 1024 ! Number of points to use in arrays/cubints
+
+      read(unit, NML=wind)
+
+      @:ASSERT(R_clump_in > 1._RD, 'R_clump_in must be greater than unity')
       @:ASSERT(R_clump_in < R_clump_ex, 'R_clump in must be less than R_clump_ex')
 
-      ! Set up the equation of motion interpolants
+      ! Set up the wind flow interpolants
 
       ! First, tabulate v and r(v)
 
-      v_in = (1._RD - b/R_clump_in)**beta
-      v_ex = (1._RD - b/R_clump_ex)**beta
+      allocate(v(n))
+      allocate(r(n))
+      allocate(dv_dr(n))
 
-      v = [((v_in*(N_EOM - i) + v_ex*(i - 1))/(N_EOM - 1),i=1,N_EOM)]
+      v_in = (1._RD - 1._RD/R_clump_in)**beta
+      v_ex = (1._RD - 1._RD/R_clump_ex)**beta
+
+      v = [((v_in*(n - i) + v_ex*(i - 1))/(n - 1),i=1,n)]
 
       if (ABS(beta) > EPSILON(1._RD)) then
-         r = b/(1. - v**(1./beta))
+         r = 1._RD/(1._RD - v**(1._RD/beta))
+         dv_dr = beta*(1._RD - 1._RD/r)**(beta-1._RD)/r**2
       else
-         r = [((R_clump_in*(N_EOM - i) + R_clump_ex*(i - 1))/(N_EOM - 1),i=1,N_EOM)]
+         r = [((R_clump_in*(n - i) + R_clump_ex*(i - 1))/(n - 1),i=1,n)]
+         dv_dr = 0._RD
          print *,'Warning: wind at terminal velocity throughout'
       endif
 
-      ! Use a cubic interpolant to integrate 1/v = dt/dr and find the
-      ! wind travel time to each velocity/radius
+      ! Use a cubic interpolant to integrate f = 1/v = dt/dr and find the
+      ! wind travel time from r=R_clump_in to each velocity/radius
 
-      t = cubint_integ(r, 1._RD/v)
+      f = cubint_t(r, 1._RD/v, -dv_dr/v**2)
 
-      ! Set up the cubic interpolant for r(t)
+      t = f%integ(r)
 
-      cubint_r_t = cubint_t(t, r, 'SPLINE', df_dx_a=v_in, df_dx_b=v_ex)
+      ! Set up interpolant for r(t)
 
-      ! Set up the cubinc interpolant for tau(t), the normalized
-      ! smooth-wind optical depth to the star
-
-      tau = cubint_integ(r, 1._RD/(r**2*(1._RD - b/r)**beta))
-
-      cubint_tau_t = cubint_t(t, tau, 'SPLINE')
+      r_t = cubint_t(t, r, v)
 
       ! Finish
 
@@ -211,45 +234,30 @@ contains
 
    !****
 
-   function cubint_integ(x, f) result(int_f)
+   subroutine init_clump (unit, N_dot, l_star, chi_star)
 
-      real(RD), intent(in) :: x(:)
-      real(RD), intent(in) :: f(:)
-      real(RD)             :: int_f(SIZE(x))
-
-      type(cubint_t) :: cubint
-
-      @:CHECK_BOUNDS(SIZE(f), SIZE(x))
-
-      ! Create a cubic interpolant for f(x)
-
-      cubint = cubint_t(x, f, deriv_type='SPLINE')
-
-      ! Evaluate the integral of f(x) dx
-
-      int_f = cubint%integ(x)
-
-      ! Finish
-
-   end function cubint_integ
-
-   !****
-
-   subroutine init_clump (N, l_star, chi_star)
-
-      real(RD), intent(out) :: N
+      integer, intent(in)   :: unit
+      real(RD), intent(out) :: N_dot
       real(RD), intent(out) :: l_star
       real(RD), intent(out) :: chi_star
 
       real(RD) :: tau_star
 
+      namelist /clump/ tau_star, N_dot, l_star
+      
       ! Read the clump parameters
 
-      read(INPUT_UNIT, *) tau_star, N, l_star
+      rewind(unit)
+
+      tau_star = 1._RD ! Smooth-wind optical depth
+      N_dot = 1._RD    ! Clump passage rate
+      l_star = 0.1_RD  ! Clump radius at stellar surface
+
+      read(unit, NML=clump)
 
       ! Set up related parameters
 
-      chi_star = 3.*tau_star/(N*l_star**3) ! Optical thickness per unit length, at star
+      chi_star = 3.*tau_star/(N_dot*l_star**3) ! clump chi=kappa*rho at stellar surface
 
       ! Finish
 
@@ -259,25 +267,25 @@ contains
 
    !****
 
-   subroutine init_random ()
+   subroutine init_random (unit)
 
-      integer              :: seed_base
-      integer              :: n_seed      
-      integer, allocatable :: seed(:)
+      integer, intent(in)  :: unit
+
+      integer :: seed_base
+
+      namelist /random/ seed_base
 
       ! Read the RNG parameters
 
-      read(INPUT_UNIT, *) seed_base
+      rewind(unit)
+
+      seed_base = 0
+
+      read(unit, NML=random)
 
       ! Seed the RNG
 
-      call RANDOM_SEED(SIZE=n_seed)
-
-      allocate(seed(n_seed))
-
-      seed = seed_base
-
-      call RANDOM_SEED(PUT=seed)
+      call set_seed(seed_base)
 
       ! Finish
 
@@ -287,16 +295,24 @@ contains
 
    !****
 
-   subroutine init_run (n_t, dt, prefix)
+   subroutine init_run (unit, n_t, dt, prefix)
 
+      integer, intent(in)       :: unit
       integer, intent(out)      :: n_t
       real(RD), intent(out)     :: dt
       character(*), intent(out) :: prefix
 
+      namelist /run/ n_t, dt, prefix
+
       ! Read the run parameters
 
-      read(INPUT_UNIT, *) n_t, dt
-      read(INPUT_UNIT, *) prefix
+      rewind(unit)
+
+      n_t = 100             ! Number of timesteps in run
+      dt = 0.1_RD           ! Size of timestep
+      prefix = 'yarg-wind-' ! Prefix of output files
+      
+      read(unit, NML=run)
 
       ! Finish
 
@@ -306,10 +322,9 @@ contains
 
    !****
 
-   function create_clumps (cubint_r_t, cubint_tau_t, t_clumps, theta, phi, N, l_star, chi_star) result(clumps)
+   function create_clumps (r_t, t_clumps, theta, phi, N, l_star, chi_star) result(clumps)
 
-      type(cubint_t), intent(in) :: cubint_r_t
-      type(cubint_t), intent(in) :: cubint_tau_t
+      type(cubint_t), intent(in) :: r_t
       real(RD), intent(in)       :: t_clumps(:)
       real(RD), intent(in)       :: theta(:)
       real(RD), intent(in)       :: phi(:)
@@ -322,7 +337,7 @@ contains
 
       ! Calculate radial coordinates
 
-      r = cubint_r_t%func(t_clumps)
+      r = r_t%func(t_clumps)
 
       ! Set up the clumps
 
@@ -341,10 +356,6 @@ contains
       ! Clump chi=kappa*rho
 
       clumps%chi = chi_star/r**3
-
-      ! Optical depth to star?
-
-      clumps%tau_st = chi_star*N*l_star**3*cubint_tau_t%func(t_clumps)/3._RD
 
       ! Finish
 
