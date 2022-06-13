@@ -72,6 +72,8 @@ program yarg_wind
    call init_random(unit)
    call init_run(unit, n_t, dt, prefix)
 
+   close(unit)
+
    t_sim_max = dt*(n_t-1)
 
    ! Set up the clump emission times and angles
