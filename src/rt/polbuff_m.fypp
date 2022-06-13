@@ -41,9 +41,9 @@ module polbuff_m
       real(RD), allocatable  :: stokes_direct(:,:,:)      ! Stokes vectors for direct radiation
       real(RD), allocatable  :: stokes_indirect(:,:,:)    ! Stokes vectors for indirect (scattered) radiation
       real(RD)               :: trans_matrix(3,3) = 0._RD ! Transformation matrix
-      real(RD), pointer      :: T(:)
-      real(RD), pointer      :: B(:)
-      real(RD), pointer      :: N(:)
+      real(RD)               :: T(3) = 0._RD
+      real(RD)               :: B(3) = 0._RD
+      real(RD)               :: N(3) = 0._RD
       real(RD)               :: stokes_acc(4) = 0._RD  ! Stokes-vector accumulator for single photon cycle
       real(RD)               :: stokes_sum(4) = 0._RD  ! Sum of Stokes vectors for all photons
       real(RD)               :: stokes_sum2(4) = 0._RD ! Sum of Stokes vectors squared for all photons
