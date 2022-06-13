@@ -21,16 +21,16 @@
 
 #:def MPI_TYPE(suffix)
    #:if suffix == 'is'
-      $:'MPI_INTEGER4'
+      MPI_INTEGER4
    #:elif suffix == 'id'
-      $:'MPI_INTEGER8'
+      MPI_INTEGER8
    #:elif suffix == 'rs'
-      $:'MPI_REAL'
+      MPI_REAL
    #:elif suffix == 'rd'
-      $:'MPI_DOUBLE_PRECISION'
+      MPI_DOUBLE_PRECISION
    #:elif suffix == 'cs'
-      $:'MPI_COMPLEX'
+      MPI_COMPLEX
    #:elif suffix == 'cd'
-      $:'MPI_DOUBLE_COMPLEX'
+      MPI_DOUBLE_COMPLEX
    #:endif
 #:enddef

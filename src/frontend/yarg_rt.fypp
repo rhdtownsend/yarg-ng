@@ -78,24 +78,30 @@ program yarg_rt
 
    ! Do test runs to gauge the best size for the hashing volume
 
-   do p_vol = 1, N_P_VOL
+   if (mpi_rank == 0) then
 
-      call build_volume(clumps, 2**p_vol, 2**p_vol, 2**p_vol, volume)
+      do p_vol = 1, N_P_VOL
 
-      call set_seed(seed_base)
+         call build_volume(clumps, 2**p_vol, 2**p_vol, 2**p_vol, volume)
+
+         call set_seed(seed_base)
         
-      call SYSTEM_CLOCK(COUNT=count_beg, COUNT_RATE=count_rate)
-      call run_rt(clumps, volume, n_scat_max, peel_opacity, CREATE_TERM_TYPE, &
-           100000, 0._RD, polbuff, verbose=.FALSE.)
-      call SYSTEM_CLOCK(COUNT=count_end)
+         call SYSTEM_CLOCK(COUNT=count_beg, COUNT_RATE=count_rate)
+         call run_rt(clumps, volume, n_scat_max, peel_opacity, CREATE_TERM_TYPE, &
+              100000, 0._RD, polbuff, verbose=.FALSE.)
+         call SYSTEM_CLOCK(COUNT=count_end)
       
-      times(p_vol) = REAL(count_end-count_beg, RD)/count_rate
+         times(p_vol) = REAL(count_end-count_beg, RD)/count_rate
 
-      print *,'Timing:',p_vol,times(p_vol)
+         print *,'Timing:',p_vol,times(p_vol)
 
-   end do
+      end do
 
-   p_vol = MINLOC(times, DIM=1)
+      p_vol = MINLOC(times, DIM=1)
+
+   end if
+
+   call bcast(p_vol, 0)
 
    ! Set up the hashing volume for real
 
@@ -544,9 +550,9 @@ contains
          case(PEEL_TERM_TYPE)
             if(polbuff%n_peel*mpi_size >= n_term) exit photon_loop
          case(NOISE_TERM_TYPE)
-            if(noise(polbuff)/SQRT(REAL(mpi_size)) <= noise_term) exit photon_loop
+            if(noise(polbuff)/SQRT(REAL(mpi_size, RD)) <= noise_term) exit photon_loop
          case(SN_TERM_TYPE)
-            if(signal_to_noise(polbuff)*SQRT(REAL(mpi_size)) >= noise_term) exit photon_loop
+            if(signal_to_noise(polbuff)*SQRT(REAL(mpi_size, RD)) >= noise_term) exit photon_loop
          end select
 
       end do photon_loop

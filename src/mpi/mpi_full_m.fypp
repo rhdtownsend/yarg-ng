@@ -24,7 +24,9 @@ module mpi_full_m
 
    use forum_m
 
-   use MPI
+   use MPI_F08
+
+   use ISO_FORTRAN_ENV
 
    ! No implicit typing
 
@@ -40,8 +42,8 @@ module mpi_full_m
    #:for op in ('bcast', 'reduce_sum')
       interface ${op}$
          #:for rank in range(RANK_MAX+1)
-            #:for type, suffix in zip(ALL_TYPES, ALL_SUFFIXES)
-               module procedure '{:s}_{:s}_{:d}_'.format(op, suffix, rank)
+            #:for type, suffix in zip(NUM_TYPES, NUM_SUFFIXES)
+               module procedure ${'{:s}_{:s}_{:d}_'.format(op, suffix, rank)}$
             #:endfor
          #:endfor
       end interface ${op}$
@@ -69,13 +71,13 @@ contains
       ! Initialize MPI
 
       call MPI_INIT(ierr)
-      @:ASSERT(ierror == MPI_SUCCESS, 'MPI_INIT failed')
+      @:ASSERT(ierr == MPI_SUCCESS, 'MPI_INIT failed')
       
       call MPI_COMM_RANK(MPI_COMM_WORLD, mpi_rank, ierr)
-      @:ASSERT(ierror == MPI_SUCCESS, 'MPI_COMM_RANK failed')
+      @:ASSERT(ierr == MPI_SUCCESS, 'MPI_COMM_RANK failed')
 
       call MPI_COMM_SIZE(MPI_COMM_WORLD, mpi_size, ierr)
-      @:ASSERT(ierror == MPI_SUCCESS, 'MPI_COMM_SIZE failed')
+      @:ASSERT(ierr == MPI_SUCCESS, 'MPI_COMM_SIZE failed')
 
       ! Finish
 
@@ -102,7 +104,7 @@ contains
    !****
 
    #:for rank in range(RANK_MAX+1)
-      #:for type, suffix in zip(MATH_TYPES, MATH_SUFFIXES)
+      #:for type, suffix in zip(NUM_TYPES, NUM_SUFFIXES)
    
          subroutine bcast_${suffix}$_${rank}$_(data, root)
 
@@ -123,7 +125,7 @@ contains
 
             return
 
-         end subroutine bcast_${suffix}$_${rank}$_(data, dset)
+         end subroutine bcast_${suffix}$_${rank}$_
         
          !****
 
@@ -141,7 +143,7 @@ contains
 
             if (mpi_rank == root) then
 
-               call MPI_REDUCE(MPI_IN_PLACE, data, PRODUCT(SHAPE(data)), ${MPI_TYPE{suffix)}$, MPI_SUM, root, MPI_COMM_WORLD, ierr)
+               call MPI_REDUCE(MPI_IN_PLACE, data, PRODUCT(SHAPE(data)), ${MPI_TYPE(suffix)}$, MPI_SUM, root, MPI_COMM_WORLD, ierr)
                @:ASSERT(ierr == MPI_SUCCESS, 'MPI_REDUCE failed')
 
             else

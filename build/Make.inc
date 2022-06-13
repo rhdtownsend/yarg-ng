@@ -31,7 +31,7 @@ endif
 
 # Preprocessor flags
 
-OPTS = DEBUG OMP FPE MPI
+OPTS = DEBUG FPE MPI
 
 FYPPFLAGS:=${FYPPFLAGS} $(foreach subdir,$(subst :, ,${SUBDIRS}),-I${subdir}) $(foreach opt,${OPTS},$(if $(filter yes,${${opt}}),-D${opt}=1))
 
@@ -41,7 +41,11 @@ FYPPFLAGS:=${FYPPFLAGS} $(foreach subdir,$(subst :, ,${SUBDIRS}),-I${subdir}) $(
 
 export F9XC
 
-F9XC = gfortran
+ifeq (${MPI},yes)
+   F9XC = mpif90
+else
+   F9XC = gfortran
+endif
 
 FFLAGS := ${FFLAGS} -finit-real=snan -fbacktrace -fmax-errors=25 -fPIC
 
@@ -57,11 +61,6 @@ endif
 
 F9XFLAGS := ${F9XFLAGS} $(addprefix -I,${MODPATH}) ${FFLAGS} -std=f2018
 F77FLAGS := ${F77FLAGS} ${FFLAGS} -ffixed-form
-
-ifeq (${OMP},yes)
-  F9XFLAGS := ${F9XFLAGS} -fopenmp
-  F77FLAGS := ${F77FLAGS} -fopenmp
-endif
 
 # Linking
 
