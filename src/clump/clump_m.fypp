@@ -151,28 +151,29 @@ contains
 
    !***
 
-   subroutine bcast_clumps(clumps)
+   subroutine bcast_clumps(clumps, root)
       
       type(clump_t), allocatable, intent(inout) :: clumps(:)
+      integer, intent(in)                       :: root
 
       integer :: n
       integer :: i
 
       ! Broadcast the clumps data
 
-      if (mpi_rank == 0) then
+      if (mpi_rank == root) then
          n = SIZE(clumps)
       endif
 
-      call bcast(n, 0)
+      call bcast(n, root)
 
-      if (mpi_rank /= 0) then
+      if (mpi_rank /= root) then
          if (ALLOCATED(clumps)) deallocate(clumps)
          allocate(clumps(n))
       endif
 
       clump_loop : do i = 1,n
-         call bcast_clump(clumps(i))
+         call bcast_clump(clumps(i), root)
       enddo clump_loop
 
       ! Finish
@@ -183,17 +184,18 @@ contains
 
    !****
 
-   subroutine bcast_clump (clump)
+   subroutine bcast_clump(clump, root)
 
       type(clump_t), intent(inout) :: clump
+      integer, intent(in)          :: root
 
       ! Broadcast the clump data
 
-      call bcast(clump%r, 0)
-      call bcast(clump%l, 0)
-      call bcast(clump%l2, 0)
-      call bcast(clump%chi, 0)
-      call bcast(clump%tau_st, 0)
+      call bcast(clump%r, root)
+      call bcast(clump%l, root)
+      call bcast(clump%l2, root)
+      call bcast(clump%chi, root)
+      call bcast(clump%tau_st, root)
 
       ! Finish
 
