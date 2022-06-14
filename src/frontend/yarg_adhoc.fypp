@@ -33,18 +33,28 @@ program yarg_adhoc
 
    ! Variables
 
+   character(:), allocatable  :: input_file
+   integer                    :: unit
    type(clump_t), allocatable :: clumps(:)
-   character(LEN=NAME_LEN)    :: filename
+   character(LEN=NAME_LEN)    :: output_file
    type(hdf5io_t)             :: hdf5io
 
    ! Perform initializations
 
-   call init_clump(clumps)
-   call init_run(filename)
+   @:ASSERT(n_arg() == 1, 'Syntax: yarg_wind input_file')
+
+   call get_arg(1, input_file)
+
+   open(NEWUNIT=unit, FILE=input_file, STATUS='OLD')
+
+   call init_clump(unit, clumps)
+   call init_run(unit, output_file)
+
+   close(unit)
 
    ! Write out the results
 
-   hdf5io = hdf5io_t(filename, CREATE_FILE)
+   hdf5io = hdf5io_t(output_file, CREATE_FILE)
    call write_clumps(hdf5io, clumps)
    call hdf5io%final()
 
@@ -54,27 +64,50 @@ program yarg_adhoc
 
 contains
 
-   subroutine init_clump(clumps)
+   subroutine init_clump(unit, clumps)
 
+      integer, intent(in)                     :: unit
       type(clump_t), allocatable, intent(out) :: clumps(:)
 
       integer  :: n_clump
-      integer  :: i
       real(RD) :: r
       real(RD) :: theta
       real(RD) :: phi
+      real(RD) :: l
+      real(RD) :: chi
+      integer  :: i
 
-      ! Read the number of clumps
+      namelist /clump/ r, theta, phi, l, chi
 
-      read(INPUT_UNIT, *) n_clump
+      ! Determine the number of clump namelists
 
-      ! Set up the clumps
+      rewind(unit)
+
+      n_clump = 0
+
+      do
+         read(unit, NML=clump, END=100)
+         n_clump = n_clump + 1
+      end do
+
+100   continue
+
+      ! Read clump parameters
 
       allocate(clumps(n_clump))
 
-      clump_loop : do i = 1,n_clump
+      rewind(unit)
 
-         read(INPUT_UNIT, *) r, theta, phi
+      clump_loop: do i = 1, n_clump
+
+         r = 2._RD     ! Clump radial coordinate
+         theta = 0._RD ! Clump polar coordinate
+         phi = 0._RD   ! Clump azimuthal coordinate
+
+         l = 0.1_RD    ! Clump radius
+         chi = 1._RD   ! Clump chi=kappa*rho
+
+         read(unit, NML=clump)
 
          theta = theta*DEG_TO_RAD
          phi = phi*DEG_TO_RAD
@@ -83,7 +116,8 @@ contains
          clumps(i)%r(2) = r*SIN(theta)*SIN(phi)
          clumps(i)%r(3) = r*COS(theta)
 
-         read(INPUT_UNIT, *) clumps(i)%l, clumps(i)%chi
+         clumps(i)%l = l
+         clumps(i)%chi = chi
 
       end do clump_loop
 
@@ -95,13 +129,20 @@ contains
 
    !****
 
-   subroutine init_run(filename)
+   subroutine init_run(unit, output_file)
 
-      character(*), intent(out) :: filename
+      integer, intent(in)       :: unit
+      character(*), intent(out) :: output_file
+
+      namelist /run/ output_file
 
       ! Read the run parameters
-      
-      read(INPUT_UNIT, *) filename
+
+      rewind(unit)
+
+      output_file = ''
+
+      read(unit, NML=run)
 
       ! Finish
 

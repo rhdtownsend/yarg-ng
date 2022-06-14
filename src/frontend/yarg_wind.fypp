@@ -41,7 +41,7 @@ program yarg_wind
    real(RD)                   :: chi_star
    integer                    :: n_t
    real(RD)                   :: dt
-   character(256)             :: prefix
+   character(NAME_LEN)        :: output_prefix
    real(RD)                   :: t_sim_max
    real(RD)                   :: t_min
    real(RD)                   :: t_max
@@ -70,7 +70,7 @@ program yarg_wind
    call init_wind(unit, r_t)
    call init_clump(unit, N_dot, l_star, chi_star)
    call init_random(unit)
-   call init_run(unit, n_t, dt, prefix)
+   call init_run(unit, n_t, dt, output_prefix)
 
    close(unit)
 
@@ -145,7 +145,7 @@ program yarg_wind
       write(infix, 100) i_t
 100   format(I6.6)
 
-      hdf5io = hdf5io_t(TRIM(prefix)//infix//'.h5', CREATE_FILE)
+      hdf5io = hdf5io_t(TRIM(output_prefix)//infix//'.h5', CREATE_FILE)
       call write_clumps(hdf5io, clumps)
       call hdf5io%final()
 
@@ -297,22 +297,22 @@ contains
 
    !****
 
-   subroutine init_run (unit, n_t, dt, prefix)
+   subroutine init_run (unit, n_t, dt, output_prefix)
 
       integer, intent(in)       :: unit
       integer, intent(out)      :: n_t
       real(RD), intent(out)     :: dt
-      character(*), intent(out) :: prefix
+      character(*), intent(out) :: output_prefix
 
-      namelist /run/ n_t, dt, prefix
+      namelist /run/ n_t, dt, output_prefix
 
       ! Read the run parameters
 
       rewind(unit)
 
-      n_t = 100             ! Number of timesteps in run
-      dt = 0.1_RD           ! Size of timestep
-      prefix = 'yarg-wind-' ! Prefix of output files
+      n_t = 100                 ! Number of timesteps in run
+      dt = 0.1_RD               ! Size of timestep
+      output_prefix = 'clumps-' ! Prefix of output files
       
       read(unit, NML=run)
 
