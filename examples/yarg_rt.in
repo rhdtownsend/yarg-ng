@@ -1,0 +1,28 @@
+&polbuff
+	x_min = -5
+	x_max = 5
+	y_min = -5
+	y_max = 5
+	n_x = 128
+	n_y = 128
+	phi = 0.
+	inc = 90.
+	gamma = 0.
+/
+
+&random
+	seed_base = 1
+/
+
+&rt
+/
+
+&clump
+	clump_file = 'clumps-000001.h5'
+/
+
+&run
+	term_type_str = 'SN'
+	noise_term = 100
+	polbuff_file = 'pb.h5'
+/

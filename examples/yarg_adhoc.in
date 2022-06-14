@@ -1,0 +1,11 @@
+&run
+	output_file = 'clumps.h5'	
+/
+
+&clump
+	r = 3.
+	theta = 0.
+	phi = 0.
+	l = 0.2
+	chi = 5
+/

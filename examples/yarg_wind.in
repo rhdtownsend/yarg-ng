@@ -1,0 +1,21 @@
+&wind
+	beta = 1.
+	R_clump_in = 1.113
+	R_clump_ex = 100.
+/
+
+&clump
+	tau_star = 0.416
+	N_dot = 20
+	l_star = 0.113
+/
+
+&random
+	seed_base = 1
+/
+
+&run
+	n_t = 1
+	dt = 1.
+	output_prefix = 'clumps-'
+/
