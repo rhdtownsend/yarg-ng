@@ -6,6 +6,63 @@
 	r = 3.
 	theta = 0.
 	phi = 0.
-	l = 0.2
+	l = 0.5
 	chi = 5
 /
+
+&clump
+	r = 3.
+	theta = 45.
+	phi = 90.
+	l = 0.5
+	chi = 5
+/
+
+&clump
+	r = 3.
+	theta = 45.
+	phi = -90.
+	l = 0.5
+	chi = 5
+/
+
+&clump
+	r = 3.
+	theta = 90.
+	phi = 90.
+	l = 0.5
+	chi = 5
+/
+
+&clump
+	r = 3.
+	theta = 90.
+	phi = -90.
+	l = 0.5
+	chi = 5
+/
+
+&clump
+	r = 3.
+	theta = 135.
+	phi = 90.
+	l = 0.5
+	chi = 5
+/
+
+&clump
+	r = 3.
+	theta = 135.
+	phi = -90.
+	l = 0.5
+	chi = 5
+/
+
+&clump
+	r = 3.
+	theta = 180.
+	phi = 0.
+	l = 0.5
+	chi = 5
+/
+

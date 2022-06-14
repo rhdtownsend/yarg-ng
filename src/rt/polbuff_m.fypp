@@ -66,6 +66,7 @@ module polbuff_m
    public :: peel_direct
    public :: peel_indirect
    public :: accumulate_photon
+   public :: write_polbuff
    public :: noise
    public :: signal_to_noise
 
@@ -193,7 +194,7 @@ contains
       integer  :: i_x
       integer  :: i_y
 
-      ! Transform to te polbuff coordinate frame
+      ! Transform to the polbuff coordinate frame
 
       r = MATMUL(polbuff%trans_matrix, photon%r)
 
@@ -222,6 +223,42 @@ contains
       return
 
    end subroutine accumulate_photon
+
+   !****
+
+   subroutine write_polbuff(hdf5io, polbuff)
+
+      type(hdf5io_t), intent(inout) :: hdf5io
+      type(polbuff_t), intent(in)   :: polbuff
+
+      ! Write the polbuff
+
+      call hdf5io%write_attr('x_min', polbuff%x_min)
+      call hdf5io%write_attr('y_min', polbuff%y_min)
+
+      call hdf5io%write_attr('dx', polbuff%dx)
+      call hdf5io%write_attr('dy', polbuff%dy)
+
+      call hdf5io%write_attr('n_x', polbuff%n_x)
+      call hdf5io%write_attr('n_y', polbuff%n_y)
+
+      call hdf5io%write_attr('n_create', polbuff%n_create)
+      call hdf5io%write_attr('n_absorb', polbuff%n_absorb)
+      call hdf5io%write_attr('n_peel', polbuff%n_peel)
+
+      call hdf5io%write_attr('stokes_sum', polbuff%stokes_sum)
+      call hdf5io%write_attr('stokes_sum2', polbuff%stokes_sum2)
+
+      call hdf5io%write_attr('SN', signal_to_noise(polbuff))
+
+      call hdf5io%write_dset('stokes_direct', polbuff%stokes_direct)
+      call hdf5io%write_dset('stokes_indirect', polbuff%stokes_indirect)
+
+      ! Finish
+
+      return
+
+   end subroutine write_polbuff
 
    !****
 

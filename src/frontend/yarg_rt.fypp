@@ -132,19 +132,7 @@ program yarg_rt
    if (mpi_rank == 0) then
 
       hdf5io = hdf5io_t(polbuff_file, CREATE_FILE)
-
-      call hdf5io%write_attr('n_create', polbuff%n_create)
-      call hdf5io%write_attr('n_absorb', polbuff%n_absorb)
-      call hdf5io%write_attr('n_peel', polbuff%n_peel)
-
-      call hdf5io%write_attr('stokes_sum', polbuff%stokes_sum)
-      call hdf5io%write_attr('stokes_sum2', polbuff%stokes_sum2)
-
-      call hdf5io%write_attr('SN', signal_to_noise(polbuff))
-
-      call hdf5io%write_dset('stokes_direct', polbuff%stokes_direct)
-      call hdf5io%write_dset('stokes_indirect', polbuff%stokes_indirect)
-
+      call write_polbuff(hdf5io, polbuff)
       call hdf5io%final()
      
    endif

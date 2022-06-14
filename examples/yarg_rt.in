@@ -22,7 +22,7 @@
 /
 
 &run
-	term_type_str = 'SN'
-	noise_term = 100
+	term_type_str = 'NOISE'
+	noise_term = 1e-4
 	polbuff_file = 'polbuff.h5'
 /

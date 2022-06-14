@@ -82,7 +82,8 @@ contains
       real(RD), intent(in) :: i
       real(RD)             :: rot_matrix(4,4)
 
-      ! Evaluate the Mueller matrix for a rotation
+      ! Evaluate the Mueller matrix for a rotation about the photon
+      ! travel direction
 
       rot_matrix(1,:) = [1._RD,0._RD,0._RD,0._RD]
       rot_matrix(2,:) = [0._RD,COS(2._RD*i),SIN(2._RD*i),0._RD]

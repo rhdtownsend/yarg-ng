@@ -78,8 +78,8 @@ contains
       real(RD) :: cos_gamma
       real(RD) :: sin_gamma
 
-      ! Calculate the transformation matrix for a rotation about the
-      ! origin, by the specified Euler angles:
+      ! Calculate the transformation matrix for rotating a vector
+      ! by the specified Euler angles:
       !
       !  alpha : first rotation, about z-axis
       !  beta  : second rotation, about y'-axis
