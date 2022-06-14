@@ -19,11 +19,11 @@ ifneq ($(MAKECMDGOALS),clean)
 
   ifneq ($(VERSION_CHECK),passed)
     ifeq ($(VERSION_CHECK),SDK too old)
-      $(error Your MESA SDK installation is too old; please update to version $(MINIMUM_VERSION) or newer)
+      $(error Your SDK installation is too old; please update to version $(MINIMUM_VERSION) or newer)
     else ifeq ($(VERSION_CHECK),SDK not installed)
-      $(error MESA SDK is either not installed or not properly initialized)
+      $(error SDK is either not installed or not properly initialized)
     else
-      $(error Could not determine MESA SDK availability)
+      $(error Could not determine SDK availability)
     endif
   endif
 

@@ -59,9 +59,3 @@ SUBDIRS = $(filter-out ${GITMODS},$(wildcard ../src/*)) $(wildcard $(patsubst %,
 # Include other makefiles
 
 include Make.inc
-
-# Dump variables (for debugging)
-
-$(info SUBDIRS is [${SUBDIRS}])
-$(info LIB_TARGETS_ is [${LIB_TARGETS_}])
-$(info EXEC_TARGETS is [${EXEC_TARGETS}])

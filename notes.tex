@@ -1,0 +1,181 @@
+\documentclass{article}
+
+\newcommand{\vinf}{v_{\infty}}
+\newcommand{\Rstar}{R_{\ast}}
+
+\newcommand{\tr}{\tilde{r}}
+\newcommand{\tv}{\tilde{v}}
+\newcommand{\tti}{\tilde{t}}
+\newcommand{\tell}{\tilde{\ell}}
+
+\newcommand{\rsonic}{r_{\rm s}}
+\newcommand{\trsonic}{\tr_{\rm s}}
+
+\newcommand{\tchi}{\tilde{\chi}}
+\newcommand{\tchistar}{\tilde{\chi}_{\ast}}
+
+\newcommand{\ellstar}{\ell_{\ast}}
+\newcommand{\tellstar}{\tell_{\ast}}
+
+\newcommand{\taustar}{\tau_{\ast}}
+
+\newcommand{\diff}[1]{{\rm d}#1}
+\newcommand{\deriv}[2]{\frac{{\rm d}#1}{{\rm d}#2}}
+
+\begin{document}
+
+\section*{Smooth Wind Description}
+
+Assume the wind is described by a $\beta$ velocity
+law:
+%
+\begin{equation}
+v(r) = \vinf \left( 1 - \frac{\Rstar}{r} \right)^{\beta},
+\end{equation}
+%
+where $\vinf$ is the wind terminal velocity, $\Rstar$ is the stellar
+radius, and $\beta$ is the velocity exponent. In terms of
+dimensionless variables $\tv \equiv v/\vinf$ and $\tr \equiv r/\Rstar$,
+this becomes
+%
+\begin{equation} \label{e:vel-law}
+\tv(\tr) = \left( 1 - \frac{1}{\tr} \right)^{\beta}.
+\end{equation}
+%
+The flow time to travel from the sonic-point radius
+$\rsonic$\footnote{We exclude the subsonic region as the integral
+blows up at $r=\Rstar$.} out to some radius
+$r$ is
+%
+\begin{equation}
+t(r) = \int_{\rsonic}^{r} \frac{1}{v(r')} \diff{r'},
+\end{equation}
+%
+or, with $\tti \equiv t \vinf/\Rstar$ and $\trsonic \equiv \rsonic/\Rstar$,
+%
+\begin{equation} \label{e:trav-time}
+\tti(\tr) = \int_{\trsonic}^{\tr} \frac{1}{\tv(\tr')} \diff{\tr'}.
+\end{equation}
+%
+For general $\beta$, this integral cannot be evaluated analytically.
+
+\section*{Numerical Implementation}
+
+A simple numerical approach to evaluating the wind flow time
+$\tti(\tr)$ is as follows
+%
+\begin{itemize}
+\item Set up a grid of velocities $\{\tv_{1}, \tv_{2}, \tv_{3},
+  \ldots\}$, with $\tv_{1} = (1 - 1/\trsonic)^{\beta}$.
+\item Evaluate a grid of corresponding radii $\tr_{i} \equiv \tr(\tv_{i})$ by
+  inverting the velocity law~(\ref{e:vel-law}).
+\item Construct a piecewise cubic function $f(\tr)$ such that
+  \[
+  f(\tr_{i}) = \frac{1}{\tv_{i}}
+  \]
+  and
+  \[
+  f'(\tr_{i}) = \left( -\frac{1}{\tv^{2}} \deriv{\tv}{\tr} \right)_{i}.
+  \]
+\item Setting $\tti_{1} = 0$, use the expression
+  \[
+  \tti_{i+1} = \tti_{i} + \int_{\tr_{i}}^{\tr_{i+1}} f(\tr') \diff{\tr'}
+  \]
+  to evaluate $\tti_{2}$, $\tti_{3}$, etc. Note that the integrals can
+  be done analytically.
+\item Construct a second piecewise cubic function $g(\tr)$ such that
+  \[
+  g(\tr_{i}) = \tti_{i}
+  \]
+  and
+  \[
+  g'(\tr_{i}) = \frac{1}{\tv_{i}}.
+  \]
+  This function should provide a good approximation to $\tti(\tr)$.
+\end{itemize}
+
+Continuing with this approach, we can also invert the travel-time
+equation~(\ref{e:trav-time}) to determine $\tr(\tti)$, the radius
+reached for wind material that has been flowing for a time $\tti$:
+%
+\begin{itemize}
+\item Evaluate $\{\tr_{i}\}$, $\{\tv_{i}\}$ and $\{\tti_{i}\}$ as
+  described above.
+\item Construct a piecewise cubic function $h(\tti)$ such that
+  \[
+  h(\tti_{i}) = \tr_{i}
+  \]
+  and
+  \[
+  h'(\tti_{i}) = \tv_{i}.
+  \]
+  This function serves as a good approximation to $\tr(\tti)$.
+\end{itemize}
+%
+
+\section*{Clumed Wind Description}
+
+Assume a wind in which the mass is confined to discrete, spherical
+clumps, rather than being smoothly distributed. However, the velocity
+of these clumps follows the same velocity law~(\ref{e:vel-law}). If
+the solid angle subtended by the clumps (as viewed from the star)
+remains constant, then the clump radius must evolve as
+%
+\begin{equation}
+  \ell(r) = \ellstar \frac{r}{\Rstar}
+\end{equation}
+%
+where $\ellstar$ is the radius at the stellar surface.
+
+Let $\dot{n}$ be the clump passage rate --- the number of clumps per
+unit time passing any given radius in the wind (\emph{which} radius
+doesn't matter, as we're assuming clump numbers are conserved as they
+flow outward). Then, the mass of each individual clump is
+%
+\begin{equation}
+  m = \frac{\dot{M}}{\dot{n}}
+\end{equation}
+%
+where $\dot{M}$ is the time-averaged wind mass loss rate. The density
+of each clump (assumed uniform) follows as
+%
+\begin{equation}
+  \rho(r) = \frac{m}{\frac{4\pi}{3} \ell^{3}} =
+  \frac{3 \dot{M} \Rstar^{3}}{4\pi \dot{n} \ellstar^{3} r^{3}}.
+\end{equation}
+%
+If $\kappa$ is the (assumed-constant) opacity of the wind material,
+then $\chi \equiv \kappa\rho$ (the reciprocal of the in-clump mean
+free path) becomes
+%
+\begin{equation}
+  \chi(r) = \frac{3 \dot{M} \Rstar^{3}}{4\pi \dot{n} \ellstar^{3} r^{3}}.
+\end{equation}
+%
+In dimensionless form, this is
+%
+\begin{equation}
+  \tchi(\tr) \equiv \chi \Rstar = \frac{\tchistar}{\tr^{3}},
+\end{equation}
+%
+where
+\begin{equation}
+  \tchistar \equiv \frac{3 \kappa \dot{M}}{4\pi \dot{n} \Rstar^{2} \tellstar^{3}}.
+\end{equation}
+%
+This latter parameter is closely related to the wind optical depth parameter
+%
+\begin{equation}
+  \taustar \equiv \frac{\kappa \dot{M}}{4 \pi \Rstar \vinf}
+\end{equation}
+%
+representing the stellar optical depth assuming a smooth wind flowing
+at $\vinf$. Specifically,
+%
+\begin{equation}
+  \tchistar = \frac{3 \taustar}{\tilde{\dot{n}} \tellstar^{3}},
+\end{equation}
+%
+where $\tilde{\dot{n}} \equiv \dot{n} \Rstar/\vinf$ is the dimensionless clump passage rate.
+
+\end{document}
