@@ -18,11 +18,11 @@
 /
 
 &clump
-	clump_file = 'clumps-000001.h5'
+	clump_file = 'clumps.h5'
 /
 
 &run
 	term_type_str = 'SN'
 	noise_term = 100
-	polbuff_file = 'pb.h5'
+	polbuff_file = 'polbuff.h5'
 /
