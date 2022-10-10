@@ -42,7 +42,7 @@ module mpi_full_m
    #:for op in ('bcast', 'reduce_sum')
       interface ${op}$
          #:for rank in range(RANK_MAX+1)
-            #:for type, suffix in zip(NUM_TYPES, NUM_SUFFIXES)
+            #:for type, suffix in zip(MATH_TYPES, MATH_SUFFIXES)
                module procedure ${'{:s}_{:s}_{:d}_'.format(op, suffix, rank)}$
             #:endfor
          #:endfor
@@ -104,7 +104,7 @@ contains
    !****
 
    #:for rank in range(RANK_MAX+1)
-      #:for type, suffix in zip(NUM_TYPES, NUM_SUFFIXES)
+      #:for type, suffix in zip(MATH_TYPES, MATH_SUFFIXES)
    
          subroutine bcast_${suffix}$_${rank}$_(data, root)
 

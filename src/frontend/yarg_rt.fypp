@@ -50,6 +50,7 @@ program yarg_rt
    integer                    :: n_term
    real(RD)                   :: noise_term
    character(LEN=NAME_LEN)    :: polbuff_file
+   logical                    :: verbose
    integer                    :: p_vol
    integer(ID)                :: count_beg
    integer(ID)                :: count_end
@@ -72,7 +73,7 @@ program yarg_rt
    call init_random(unit, seed_base)
    call init_rt(unit, n_scat_max, peel_opacity)
    call init_clumps(unit, clumps)
-   call init_run(unit, term_type, n_term, noise_term, polbuff_file)
+   call init_run(unit, term_type, n_term, noise_term, polbuff_file, verbose)
 
    close(unit)
 
@@ -88,12 +89,12 @@ program yarg_rt
         
          call SYSTEM_CLOCK(COUNT=count_beg, COUNT_RATE=count_rate)
          call run_rt(clumps, volume, n_scat_max, peel_opacity, CREATE_TERM_TYPE, &
-              100000, 0._RD, polbuff, verbose=.FALSE.)
+              100000, 0._RD, polbuff, verbose=verbose)
          call SYSTEM_CLOCK(COUNT=count_end)
       
          times(p_vol) = REAL(count_end-count_beg, RD)/count_rate
 
-         print *,'Timing:',p_vol,times(p_vol)
+         if (verbose) print *,'Timing:',p_vol,times(p_vol)
 
       end do
 
@@ -373,17 +374,18 @@ contains
 
    !****
 
-   subroutine init_run(unit, term_type, n_term, noise_term, polbuff_file)
+   subroutine init_run(unit, term_type, n_term, noise_term, polbuff_file, verbose)
 
       integer, intent(in)       :: unit
       integer, intent(out)      :: term_type
       integer, intent(out)      :: n_term
       real(RD), intent(out)     :: noise_term
       character(*), intent(out) :: polbuff_file
+      logical, intent(out)      :: verbose
 
       character(LEN=64) :: term_type_str
 
-      namelist /run/ term_type_str, n_term, noise_term, polbuff_file
+      namelist /run/ term_type_str, n_term, noise_term, polbuff_file, verbose
 
       ! Read the run parameters
 
@@ -395,6 +397,7 @@ contains
 
          n_term = 1000
          noise_term = 1E-3_RD
+         verbose = .FALSE.
 
          read(unit, NML=run)
 
@@ -417,6 +420,8 @@ contains
       call bcast(noise_term, 0)
 
       call bcast(term_type, 0)
+
+      call bcast(verbose, 0)
 
       ! Finish
 
@@ -475,7 +480,7 @@ contains
          if(verbose_ .AND. mpi_rank == 0 .AND. MOD(polbuff%n_create, 10000_ID) == 0) then
             print 100,'Count:', polbuff%n_create, polbuff%n_absorb, polbuff%n_peel, &
                  polbuff%stokes_sum(1)/(polbuff%n_create-polbuff%n_absorb)*4._RD*PI, &
-                 SQRT(SUM(polbuff%stokes_sum(2:)**2))/(polbuff%n_create-polbuff%n_absorb)*4._RD*PI, &
+                 SQRT(SUM(polbuff%stokes_sum(2:)**2))/(polbuff%n_create-polbuff%n_absorb), &
                  noise(polbuff)
 100         format(A,1X,I12,1X,I12,1X,I12,1X,F9.6,1X,F9.6,1X,E16.8)
          endif
